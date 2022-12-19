@@ -54,6 +54,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
+	stringslices "k8s.io/utils/strings/slices"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
@@ -64,6 +65,7 @@ import (
 	"github.com/oam-dev/kubevela/pkg/config"
 	"github.com/oam-dev/kubevela/pkg/cue/script"
 	"github.com/oam-dev/kubevela/pkg/definition"
+	"github.com/oam-dev/kubevela/pkg/multicluster"
 	"github.com/oam-dev/kubevela/pkg/oam"
 	"github.com/oam-dev/kubevela/pkg/oam/util"
 	"github.com/oam-dev/kubevela/pkg/utils"
@@ -990,20 +992,52 @@ func (h *Installer) getAddonMeta() (map[string]SourceMeta, error) {
 // installDependency checks if addon's dependency and install it
 func (h *Installer) installDependency(addon *InstallPackage) error {
 	var dependencies []string
+	var addonClusters = getClusters(h.args)
+	// addon must be installed in local now (the render logic dependency addon crd in local)
+	addonClusters = append(addonClusters, multicluster.ClusterLocalName)
+	var depClusters []string
 	for _, dep := range addon.Dependencies {
-		_, err := FetchAddonRelatedApp(h.ctx, h.cli, dep.Name)
-		if err == nil {
+		depApp, err := FetchAddonRelatedApp(h.ctx, h.cli, dep.Name)
+		var needInstallAddonDep = false
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				return err
+			}
+			needInstallAddonDep = true
+			depClusters = addonClusters
+		} else {
+			// get the runtime clusters of current dependency addon
+			for _, r := range depApp.Status.AppliedResources {
+				if r.Cluster != "" && !stringslices.Contains(depClusters, r.Cluster) {
+					depClusters = append(depClusters, r.Cluster)
+				}
+			}
+
+			// determine if there are no dependencies on the cluster to be installed
+			for _, addonCluster := range addonClusters {
+				if !stringslices.Contains(depClusters, addonCluster) {
+					depClusters = append(depClusters, addonCluster)
+					needInstallAddonDep = true
+				}
+			}
+		}
+		if !needInstallAddonDep {
 			continue
 		}
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
+
 		dependencies = append(dependencies, dep.Name)
 		if h.dryRun {
 			continue
 		}
 		depHandler := *h
-		depHandler.args = nil
+		if depClusters == nil {
+			depHandler.args = nil
+		} else {
+			depHandler.args = map[string]interface{}{
+				types.ClustersArg: depClusters,
+			}
+		}
+
 		var depAddon *InstallPackage
 		// try to install the dependent addon from the same registry with the current addon
 		depAddon, err = h.loadInstallPackage(dep.Name, dep.Version)
