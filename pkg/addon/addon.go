@@ -65,7 +65,6 @@ import (
 	"github.com/oam-dev/kubevela/pkg/config"
 	"github.com/oam-dev/kubevela/pkg/cue/script"
 	"github.com/oam-dev/kubevela/pkg/definition"
-	"github.com/oam-dev/kubevela/pkg/multicluster"
 	"github.com/oam-dev/kubevela/pkg/oam"
 	"github.com/oam-dev/kubevela/pkg/oam/util"
 	"github.com/oam-dev/kubevela/pkg/utils"
@@ -993,8 +992,6 @@ func (h *Installer) getAddonMeta() (map[string]SourceMeta, error) {
 func (h *Installer) installDependency(addon *InstallPackage) error {
 	var dependencies []string
 	var addonClusters = getClusters(h.args)
-	// addon must be installed in local now (the render logic dependency addon crd in local)
-	addonClusters = append(addonClusters, multicluster.ClusterLocalName)
 	var depClusters []string
 	for _, dep := range addon.Dependencies {
 		depApp, err := FetchAddonRelatedApp(h.ctx, h.cli, dep.Name)
