@@ -992,14 +992,15 @@ func (h *Installer) getAddonMeta() (map[string]SourceMeta, error) {
 func (h *Installer) installDependency(addon *InstallPackage) error {
 	var dependencies []string
 	var addonClusters = getClusters(h.args)
-	var depClusters []string
 	for _, dep := range addon.Dependencies {
 		depApp, err := FetchAddonRelatedApp(h.ctx, h.cli, dep.Name)
 		var needInstallAddonDep = false
+		var depClusters []string
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				return err
 			}
+			// depApp is not exist
 			needInstallAddonDep = true
 			depClusters = addonClusters
 		} else {
@@ -1027,13 +1028,25 @@ func (h *Installer) installDependency(addon *InstallPackage) error {
 			continue
 		}
 		depHandler := *h
-		if depClusters == nil {
-			depHandler.args = nil
-		} else {
-			depHandler.args = map[string]interface{}{
-				types.ClustersArg: depClusters,
+		// get dependency addon original parameters
+		var depArgs map[string]interface{}
+		var sec v1.Secret
+		err = h.cli.Get(h.ctx, client.ObjectKey{Namespace: types.DefaultKubeVelaNS, Name: addonutil.Addon2SecName(dep.Name)}, &sec)
+		if err == nil {
+			args, err := FetchArgsFromSecret(&sec)
+			if err == nil {
+				depArgs = args
 			}
 		}
+		// reset the cluster arg
+		if depArgs == nil {
+			depArgs = map[string]interface{}{
+				types.ClustersArg: depClusters,
+			}
+		} else {
+			depArgs[types.ClustersArg] = depClusters
+		}
+		depHandler.args = depArgs
 
 		var depAddon *InstallPackage
 		// try to install the dependent addon from the same registry with the current addon
