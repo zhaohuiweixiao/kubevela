@@ -496,6 +496,66 @@ Please refer to URL.`))
 	})
 })
 
+var _ = Describe("Test enable addon which contains dependencies with specified clusters", func() {
+	BeforeEach(func() {
+		// addon-c1 cluster exist
+		Expect(k8sClient.Create(ctx, &v1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "add-c1",
+				Namespace: "vela-system",
+				Labels: map[string]string{
+					clustercommon.LabelKeyClusterCredentialType: string(v1alpha1.CredentialTypeX509Certificate),
+					clustercommon.LabelKeyClusterEndpointType:   string(v1alpha1.ClusterEndpointTypeConst),
+					"key": "value",
+				},
+			},
+		})).Should(SatisfyAny(BeNil(), &util.AlreadyExistMatcher{}))
+		// addon-c2 cluster exist
+		Expect(k8sClient.Create(ctx, &v1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "add-c2",
+				Namespace: "vela-system",
+				Labels: map[string]string{
+					clustercommon.LabelKeyClusterCredentialType: string(v1alpha1.CredentialTypeX509Certificate),
+					clustercommon.LabelKeyClusterEndpointType:   string(v1alpha1.ClusterEndpointTypeConst),
+					"key": "value",
+				},
+			},
+		})).Should(SatisfyAny(BeNil(), &util.AlreadyExistMatcher{}))
+		// fluxcd addon application exist, and it runs on addon-c1
+		args := map[string]interface{}{
+			"clusters":           []string{"add-c1"},
+			"onlyHelmComponents": true,
+		}
+		_, err := EnableAddon(ctx, "fluxcd", "", k8sClient, dc, apply.NewAPIApplicator(k8sClient), cfg, Registry{Name: LocalAddonRegistryName}, args, nil, nil, nil)
+		Expect(err).Should(BeNil())
+		Eventually(func(g Gomega) {
+			status, err := GetAddonStatus(ctx, k8sClient, "fluxcd")
+			g.Expect(err).Should(BeNil())
+			g.Expect(status.Parameters).Should(BeEquivalentTo(map[string]interface{}{
+				"clusters":           []string{"add-c1"},
+				"onlyHelmComponents": true,
+			}))
+		}, 20*time.Second, 100*time.Second).Should(Succeed())
+	})
+	It("test enable addon rollout which depends on fluxcd addon", func() {
+		// fluxcd addon application exist, and it runs on addon-c1 and addon-c2
+		args := map[string]interface{}{
+			"clusters": []string{"add-c2"},
+		}
+		// enable rollout addon, which depend on fluxcd addon
+		EnableAddon(ctx, "rollout", "", k8sClient, dc, apply.NewAPIApplicator(k8sClient), cfg, Registry{Name: LocalAddonRegistryName}, args, nil, nil, nil)
+		Eventually(func(g Gomega) {
+			status, err := GetAddonStatus(ctx, k8sClient, "fluxcd")
+			g.Expect(err).Should(BeNil())
+			g.Expect(status.Parameters).Should(BeEquivalentTo(map[string]interface{}{
+				"clusters":           []string{"add-c1", "add-c2"},
+				"onlyHelmComponents": true,
+			}))
+		}, 20*time.Second, 100*time.Second).Should(Succeed())
+	})
+})
+
 var _ = Describe("test override defs of addon", func() {
 	It("test compDef exist", func() {
 		ctx := context.Background()
