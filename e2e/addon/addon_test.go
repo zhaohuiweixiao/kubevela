@@ -140,6 +140,95 @@ var _ = Describe("Addon Test", func() {
 			Expect(output).To(ContainSubstring("you can try another version by command"))
 			Expect(err).NotTo(HaveOccurred())
 		})
+
+		/*It("upgrade rollout addon which contains fluxcd dependency with specified clusters", func() {
+			const clusterName = "cluster-worker"
+			// upgrade addon
+			output, err := e2e.Exec("vela addon upgrade fluxcd --clusters local onlyHelmComponents=true")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("enabled successfully."))
+			output2, err := e2e.Exec("vela addon list")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output2).To(ContainSubstring("fluxcd"))
+			// check fluxcd application parameter
+			Eventually(func(g Gomega) {
+				// check fluxcd parameter
+				sec := &v1.Secret{}
+				g.Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: "addon-secret-fluxcd", Namespace: "vela-system"}, sec)).Should(Succeed())
+				parameters := map[string]interface{}{}
+				json.Unmarshal(sec.Data[addon.AddonParameterDataKey], &parameters)
+				g.Expect(parameters).Should(BeEquivalentTo(map[string]interface{}{
+					"clusters":           []interface{}{"local"},
+					"onlyHelmComponents": true,
+				}))
+			}, 120*time.Second).Should(Succeed())
+
+			// upgrade rollout
+			e2e.Exec("vela addon upgrade rollout --clusters=local," + clusterName)
+			// check fluxcd application paramter
+			Eventually(func(g Gomega) {
+				// check fluxcd parameter
+				sec := &v1.Secret{}
+				g.Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: "addon-secret-fluxcd", Namespace: "vela-system"}, sec)).Should(Succeed())
+				parameters := map[string]interface{}{}
+				json.Unmarshal(sec.Data[addon.AddonParameterDataKey], &parameters)
+				g.Expect(parameters).Should(BeEquivalentTo(map[string]interface{}{
+					"clusters":           []interface{}{"local", clusterName},
+					"onlyHelmComponents": true,
+				}))
+			}, 120*time.Second).Should(Succeed())
+		})*/
+
+		/*It("upgrade rollout addon which contains fluxcd dependency with specified clusters", func() {
+			const clusterName = "cluster-worker"
+			// upgrade addon
+			output, err := e2e.Exec("vela addon upgrade fluxcd --clusters local")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("enabled successfully."))
+			output1, err := e2e.Exec("vela ls -A")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output1).To(ContainSubstring("fluxcd"))
+			output2, err := e2e.Exec("vela addon list")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output2).To(ContainSubstring("fluxcd"))
+			// check fluxcd application parameter
+			Eventually(func(g Gomega) {
+				app := &v1beta1.Application{}
+				Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: "addon-fluxcd", Namespace: "vela-system"}, app)).Should(Succeed())
+				fmt.Printf("fluxcd app：%v \n", app.Spec.Policies)
+				topologyPolicyValue := map[string]interface{}{}
+				for _, policy := range app.Spec.Policies {
+					if policy.Type == "topology" {
+						Expect(json.Unmarshal(policy.Properties.Raw, &topologyPolicyValue)).Should(Succeed())
+						break
+					}
+				}
+				fmt.Printf("fluxcd topoly: %v \n", topologyPolicyValue)
+				fluxcdYaml, err1 := e2e.Exec("vela status addon-fluxcd -n vela-system -oyaml")
+				Expect(err1).NotTo(HaveOccurred())
+				Expect(fluxcdYaml).To(ContainSubstring("fluxcd"))
+				fluxcdStatus, err2 := e2e.Exec("vela addon status fluxcd -v")
+				Expect(err2).NotTo(HaveOccurred())
+				Expect(fluxcdStatus).To(ContainSubstring("fluxcd"))
+				Expect(topologyPolicyValue["clusters"]).Should(Equal([]interface{}{"local"}))
+			}, 600*time.Second).Should(Succeed())
+
+			// upgrade rollout
+			e2e.Exec("vela addon upgrade rollout --clusters=local," + clusterName)
+			// check fluxcd application paramter
+			Eventually(func(g Gomega) {
+				app := &v1beta1.Application{}
+				Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: "addon-fluxcd", Namespace: "vela-system"}, app)).Should(Succeed())
+				topologyPolicyValue := map[string]interface{}{}
+				for _, policy := range app.Spec.Policies {
+					if policy.Type == "topology" {
+						Expect(json.Unmarshal(policy.Properties.Raw, &topologyPolicyValue)).Should(Succeed())
+						break
+					}
+				}
+				Expect(topologyPolicyValue["clusters"]).Should(Equal([]interface{}{"local", clusterName}))
+			}, 30*time.Second).Should(Succeed())
+		})*/
 	})
 
 	Context("Addon registry test", func() {
