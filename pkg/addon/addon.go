@@ -1002,8 +1002,11 @@ func (h *Installer) getAddonMeta() (map[string]SourceMeta, error) {
 func (h *Installer) installDependency(addon *InstallPackage) error {
 	var dependencies []string
 	var addonClusters = getClusters(h.args)
+	fmt.Printf("addonname: %v", addon.Name)
+	fmt.Printf("clusterArgs: %v", addonClusters)
 	for _, dep := range addon.Dependencies {
 		depApp, err := FetchAddonRelatedApp(h.ctx, h.cli, dep.Name)
+		fmt.Printf("depApp: %v", dep.Name)
 		var needInstallAddonDep = false
 		var depClusters []string
 		if err != nil {
@@ -1029,6 +1032,8 @@ func (h *Installer) installDependency(addon *InstallPackage) error {
 				}
 			}
 		}
+		fmt.Printf("needInstallAddonDep: %v", needInstallAddonDep)
+		fmt.Printf("depClusters: %v", depClusters)
 		if !needInstallAddonDep {
 			continue
 		}
@@ -1056,6 +1061,7 @@ func (h *Installer) installDependency(addon *InstallPackage) error {
 		} else {
 			depArgs[types.ClustersArg] = depClusters
 		}
+		fmt.Printf("depArgs: %v", depArgs)
 		depHandler.args = depArgs
 
 		var depAddon *InstallPackage

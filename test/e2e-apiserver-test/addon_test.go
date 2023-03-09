@@ -233,6 +233,60 @@ var _ = Describe("Test addon rest api", func() {
 		})
 	})
 
+	Describe("Test addon dependency with specified clusters", func() {
+		It("Test Operation of enabling rollout addon will change the enable fluxcd addon automatically on the rollout installed cluster", func() {
+			const clusterName = "cluster-worker"
+			// enable fluxcd
+			fluxcdArgs := map[string]interface{}{
+				"clusters":           []interface{}{"local"},
+				"onlyHelmComponents": true,
+			}
+			fluxcdReq := apisv1.EnableAddonRequest{
+				Args: fluxcdArgs,
+			}
+			fluxcdRes := post("/addons/fluxcd/enable", fluxcdReq)
+			defer fluxcdRes.Body.Close()
+			var fluxcdAddon apisv1.AddonStatusResponse
+			Expect(decodeResponseBody(fluxcdRes, &fluxcdAddon)).Should(Succeed())
+			Expect(fluxcdAddon.Name).Should(BeEquivalentTo("fluxcd"))
+			Expect(fluxcdAddon.Args).Should(BeEquivalentTo(fluxcdArgs))
+
+			// enable rollout
+			rolloutArgs := map[string]interface{}{
+				"clusters": []interface{}{"local", clusterName},
+			}
+			rolloutReq := apisv1.EnableAddonRequest{
+				Args:     rolloutArgs,
+				Clusters: []string{"local", clusterName},
+			}
+			fmt.Printf("rolloutReq: %v", rolloutReq)
+			rolloutRes := post("/addons/rollout/enable", rolloutReq)
+			defer rolloutRes.Body.Close()
+			var rolloutAddon apisv1.AddonStatusResponse
+			err := decodeResponseBody(rolloutRes, &rolloutAddon)
+			fmt.Printf("addon rollout install err: %v \n", err)
+			Expect(err).To(HaveOccurred())
+			/*Expect(rolloutAddon.Name).Should(BeEquivalentTo("rollout"))
+			Expect(rolloutAddon.Args).Should(BeEquivalentTo(rolloutArgs))*/
+
+			clusters := get("/clusters")
+			var allClusters apisv1.ListClusterResponse
+			Expect(decodeResponseBody(clusters, &allClusters)).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				status := get("/addons/fluxcd/status")
+				var newaddonStatus apisv1.AddonStatusResponse
+				g.Expect(decodeResponseBody(status, &newaddonStatus)).Should(Succeed())
+				//fmt.Printf("fluxcd all clusters: %v", newaddonStatus.AllClusters)
+				g.Expect(newaddonStatus.Name).Should(BeEquivalentTo("fluxcd"))
+				g.Expect(newaddonStatus.Args).Should(BeEquivalentTo(map[string]interface{}{
+					"clusters":           []interface{}{"local", clusterName},
+					"onlyHelmComponents": true,
+				}))
+			}, 30*time.Second, 300*time.Millisecond).Should(Succeed())
+		})
+	})
+
 	Describe("Test addon dependency addon in other registry", func() {
 		It("Test Operation of enable addon from other registry", func() {
 			req := apisv1.EnableAddonRequest{}
