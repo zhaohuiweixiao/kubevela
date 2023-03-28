@@ -26,8 +26,8 @@ import (
 	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/repo"
+	"k8s.io/klog/v2"
 
-	"github.com/oam-dev/kubevela/pkg/apiserver/utils/log"
 	"github.com/oam-dev/kubevela/pkg/utils"
 	"github.com/oam-dev/kubevela/pkg/utils/common"
 	"github.com/oam-dev/kubevela/pkg/utils/helm"
@@ -149,6 +149,7 @@ func (i versionedRegistry) loadAddon(ctx context.Context, name, version string) 
 	if addonVersion == nil {
 		return nil, errors.Errorf("specified version %s not exist", utils.Sanitize(version))
 	}
+	klog.V(5).Infof("Addon '%s' with version '%s' found from registry '%s'", addonVersion.Name, addonVersion.Version, i.name)
 	for _, chartURL := range addonVersion.URLs {
 		if !utils.IsValidURL(chartURL) {
 			chartURL, err = utils.JoinURL(i.url, chartURL)
@@ -158,10 +159,12 @@ func (i versionedRegistry) loadAddon(ctx context.Context, name, version string) 
 		}
 		archive, err := common.HTTPGetWithOption(ctx, chartURL, i.Opts)
 		if err != nil {
+			klog.Warningf("failed to download the addon package %s:%s", chartURL, err.Error())
 			continue
 		}
 		bufferedFile, err := loader.LoadArchiveFiles(bytes.NewReader(archive))
 		if err != nil {
+			klog.Warningf("failed to load the addon package:%s", err.Error())
 			continue
 		}
 		addonPkg, err := loadAddonPackage(name, bufferedFile)
@@ -171,9 +174,10 @@ func (i versionedRegistry) loadAddon(ctx context.Context, name, version string) 
 		addonPkg.AvailableVersions = availableVersions
 		addonPkg.RegistryName = i.name
 		addonPkg.Meta.SystemRequirements = LoadSystemRequirements(addonVersion.Annotations)
+		klog.V(5).Infof("Addon '%s' with version '%s' loaded successfully from registry '%s'", addonVersion.Name, addonVersion.Version, i.name)
 		return addonPkg, nil
 	}
-	return nil, fmt.Errorf("cannot fetch addon package")
+	return nil, ErrFetch
 }
 
 // loadAddonVersions Load all available versions of the addon
@@ -234,7 +238,6 @@ func chooseVersion(specifiedVersion string, versions []*repo.ChartVersion) (*rep
 				continue
 			}
 			addonVersion = v
-			log.Logger.Infof("Use the latest version %s by default, you can use --version to specify", v.Version)
 		}
 	}
 	return addonVersion, availableVersions

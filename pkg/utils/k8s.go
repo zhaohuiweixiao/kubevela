@@ -31,27 +31,26 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/fatih/color"
+	"github.com/kubevela/pkg/multicluster"
 	"github.com/pkg/errors"
 	"github.com/wercker/stern/stern"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
-	"k8s.io/client-go/kubernetes"
-
-	querytypes "github.com/oam-dev/kubevela/pkg/velaql/providers/query/types"
-
 	authv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/selection"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/oam-dev/kubevela/pkg/oam/util"
 	velaerr "github.com/oam-dev/kubevela/pkg/utils/errors"
+	querytypes "github.com/oam-dev/kubevela/pkg/velaql/providers/query/types"
 )
 
 // MutateOption defines the function pattern for mutate
@@ -93,12 +92,26 @@ func MergeNoConflictLabels(labels map[string]string) MutateOption {
 // CreateOrUpdateNamespace will create a namespace if not exist, it will also update a namespace if exists
 // It will report an error if the labels conflict while it will override the annotations
 func CreateOrUpdateNamespace(ctx context.Context, kubeClient client.Client, name string, options ...MutateOption) error {
-	err := CreateNamespace(ctx, kubeClient, name, options...)
-	// only if namespace don't have the env label that we need to update it
-	if apierrors.IsAlreadyExists(err) {
-		return UpdateNamespace(ctx, kubeClient, name, options...)
+	ns, err := GetNamespace(ctx, kubeClient, name)
+	switch {
+	case err == nil:
+		return PatchNamespace(ctx, kubeClient, ns, options...)
+	case apierrors.IsNotFound(err):
+		return CreateNamespace(ctx, kubeClient, name, options...)
+	default:
+		return err
 	}
-	return err
+}
+
+// PatchNamespace will patch a namespace
+func PatchNamespace(ctx context.Context, kubeClient client.Client, ns *corev1.Namespace, options ...MutateOption) error {
+	original := ns.DeepCopy()
+	for _, op := range options {
+		if err := op(ns); err != nil {
+			return err
+		}
+	}
+	return kubeClient.Patch(ctx, ns, client.MergeFrom(original))
 }
 
 // CreateNamespace will create a namespace with mutate option
@@ -242,6 +255,7 @@ func GetPodsLogs(ctx context.Context, config *rest.Config, containerName string,
 			}
 		}
 	}
+	config.Wrap(multicluster.NewTransportWrapper())
 	clientSet, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return err

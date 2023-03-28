@@ -26,6 +26,7 @@ e2e-setup-core-wo-auth:
 	    --set image.pullPolicy=IfNotPresent         \
 	    --set image.repository=vela-core-test       \
 	    --set applicationRevisionLimit=5            \
+	    --set optimize.disableComponentRevision=false        \
 	    --set dependCheckWait=10s                   \
 	    --set image.tag=$(GIT_COMMIT)               \
 	    --wait kubevela ./charts/vela-core
@@ -38,6 +39,7 @@ e2e-setup-core-w-auth:
 	    --set image.pullPolicy=IfNotPresent             \
 	    --set image.repository=vela-core-test           \
 	    --set applicationRevisionLimit=5                \
+	    --set optimize.disableComponentRevision=false   \
 	    --set dependCheckWait=10s                       \
 	    --set image.tag=$(GIT_COMMIT)                   \
 	    --wait kubevela                                 \
@@ -46,7 +48,18 @@ e2e-setup-core-w-auth:
 	    --set authentication.withUser=true              \
 	    --set authentication.groupPattern=*             \
 	    --set featureGates.zstdResourceTracker=true     \
-	    --set featureGates.zstdApplicationRevision=true
+	    --set featureGates.zstdApplicationRevision=true \
+	    --set featureGates.validateComponentWhenSharding=true \
+	    --set multicluster.clusterGateway.enabled=true \
+	    --set sharding.enabled=true
+	kubectl get deploy kubevela-vela-core -oyaml -n vela-system | \
+		sed 's/schedulable-shards=/shard-id=shard-0/g' | \
+		sed 's/instance: kubevela/instance: kubevela-shard/g' | \
+		sed 's/shard-id: master/shard-id: shard-0/g' | \
+		sed 's/name: kubevela/name: kubevela-shard/g' | \
+		kubectl apply -f -
+	kubectl wait deployment -n vela-system kubevela-shard-vela-core --for condition=Available=True --timeout=90s
+
 
 .PHONY: e2e-setup-core
 e2e-setup-core: e2e-setup-core-pre-hook e2e-setup-core-wo-auth e2e-setup-core-post-hook
@@ -61,6 +74,8 @@ setup-runtime-e2e-cluster:
 	    --wait oam-rollout                               \
 	    --set image.repository=vela-runtime-rollout-test \
 	    --set image.tag=$(GIT_COMMIT)                    \
+	    --set applicationRevisionLimit=6                 \
+	    --set optimize.disableComponentRevision=false             \
 	    ./runtime/rollout/charts
 
 	k3d cluster get $(RUNTIME_CLUSTER_NAME) && 			 \
@@ -71,7 +86,9 @@ setup-runtime-e2e-cluster:
 	    --set image.pullPolicy=IfNotPresent              \
 	    --set image.repository=vela-runtime-rollout-test \
 	    --set image.tag=$(GIT_COMMIT)                    \
+	    --set applicationRevisionLimit=6                 \
 	    --wait vela-rollout                              \
+	    --set optimize.disableComponentRevision=false              \
 	    ./runtime/rollout/charts ||						 \
 	echo "no worker cluster"					   		 \
 
@@ -83,11 +100,6 @@ e2e-api-test:
 	ginkgo -v -skipPackage capability,setup,application -r e2e
 	ginkgo -v -r e2e/application
 
-
-.PHONY: e2e-apiserver-test
-e2e-apiserver-test:
-	go test -v -coverpkg=./... -coverprofile=/tmp/e2e_apiserver_test.out ./test/e2e-apiserver-test
-	@$(OK) tests pass
 
 .PHONY: e2e-test
 e2e-test:
@@ -119,6 +131,10 @@ e2e-cleanup:
 .PHONY: end-e2e-core
 end-e2e-core:
 	sh ./hack/e2e/end_e2e_core.sh
+
+.PHONY: end-e2e-core-shards
+end-e2e-core-shards: end-e2e-core
+	CORE_NAME=kubevela-shard sh ./hack/e2e/end_e2e_core.sh
 
 .PHONY: end-e2e
 end-e2e:

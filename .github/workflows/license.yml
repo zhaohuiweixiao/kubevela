@@ -9,13 +9,16 @@ on:
     branches:
       - master
       - release-*
+      -
+permissions:
+  contents: read
 
 jobs:
   license_check:
     runs-on: ubuntu-latest
     name: Check for unapproved licenses
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:

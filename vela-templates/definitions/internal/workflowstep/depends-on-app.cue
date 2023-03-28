@@ -5,10 +5,10 @@ import (
 
 "depends-on-app": {
 	type: "workflow-step"
-	annotations: {}
-	labels: {
-		"ui-hidden": "true"
+	annotations: {
+		"category": "Application Delivery"
 	}
+	labels: {}
 	description: "Wait for the specified Application to complete."
 }
 

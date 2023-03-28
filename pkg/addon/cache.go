@@ -23,7 +23,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/oam-dev/kubevela/pkg/apiserver/utils/log"
+	"k8s.io/klog/v2"
+
 	"github.com/oam-dev/kubevela/pkg/utils"
 	"github.com/oam-dev/kubevela/pkg/utils/common"
 )
@@ -66,13 +67,18 @@ func NewCache(ds RegistryDataStore) *Cache {
 }
 
 // DiscoverAndRefreshLoop will run a loop to automatically discovery and refresh addons from registry
-func (u *Cache) DiscoverAndRefreshLoop(cacheTime time.Duration) {
+func (u *Cache) DiscoverAndRefreshLoop(ctx context.Context, cacheTime time.Duration) {
 	ticker := time.NewTicker(cacheTime)
 	defer ticker.Stop()
 
 	// This is infinite loop, we can receive a channel for close
-	for ; true; <-ticker.C {
-		u.discoverAndRefreshRegistry()
+	for {
+		select {
+		case <-ticker.C:
+			u.discoverAndRefreshRegistry()
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
@@ -113,7 +119,7 @@ func (u *Cache) GetUIData(r Registry, addonName, version string) (*UIData, error
 		})
 		addon, err = versionedRegistry.GetAddonUIData(context.Background(), addonName, version)
 		if err != nil {
-			log.Logger.Errorf("fail to get addons from registry %s for cache updating, %v", utils.Sanitize(r.Name), err)
+			klog.Errorf("fail to get addons from registry %s for cache updating, %v", utils.Sanitize(r.Name), err)
 			return nil, err
 		}
 	}
@@ -278,7 +284,7 @@ func (u *Cache) putVersionedUIData2Cache(registryName, addonName, version string
 func (u *Cache) discoverAndRefreshRegistry() {
 	registries, err := u.ds.ListRegistries(context.Background())
 	if err != nil {
-		log.Logger.Errorf("fail to get registry %v", err)
+		klog.Errorf("fail to get registry %v", err)
 		return
 	}
 	u.putRegistry2Cache(registries)
@@ -301,13 +307,13 @@ func (u *Cache) discoverAndRefreshRegistry() {
 func (u *Cache) listUIDataAndCache(r Registry) ([]*UIData, error) {
 	registryMeta, err := r.ListAddonMeta()
 	if err != nil {
-		log.Logger.Errorf("fail to list registry %s metadata,  %v", r.Name, err)
+		klog.Errorf("fail to list registry %s metadata,  %v", r.Name, err)
 		return nil, err
 	}
 	u.putAddonMeta2Cache(r.Name, registryMeta)
 	uiData, err := r.ListUIData(registryMeta, UIMetaOptions)
 	if err != nil {
-		log.Logger.Errorf("fail to get addons from registry %s for cache updating, %v", r.Name, err)
+		klog.Errorf("fail to get addons from registry %s for cache updating, %v", r.Name, err)
 		return nil, err
 	}
 	u.putAddonUIData2Cache(r.Name, uiData)
@@ -322,13 +328,13 @@ func (u *Cache) listVersionRegistryUIDataAndCache(r Registry) ([]*UIData, error)
 	})
 	uiDatas, err := versionedRegistry.ListAddon()
 	if err != nil {
-		log.Logger.Errorf("fail to get addons from registry %s for cache updating, %v", r.Name, err)
+		klog.Errorf("fail to get addons from registry %s for cache updating, %v", r.Name, err)
 		return nil, err
 	}
 	for _, addon := range uiDatas {
 		uiData, err := versionedRegistry.GetAddonUIData(context.Background(), addon.Name, addon.Version)
 		if err != nil {
-			log.Logger.Errorf("fail to get addon from versioned registry %s, addon %s version %s for cache updating, %v", r.Name, addon.Name, addon.Version, err)
+			klog.Errorf("fail to get addon from versioned registry %s, addon %s version %s for cache updating, %v", r.Name, addon.Name, addon.Version, err)
 			continue
 		}
 		u.putVersionedUIData2Cache(r.Name, addon.Name, addon.Version, uiData)

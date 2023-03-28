@@ -1938,6 +1938,53 @@
 				}
 			}
 		},
+		"/api/v1/applications/{appName}/revisions/{revision}/rollback": {
+			"post": {
+				"consumes": [
+					"application/xml",
+					"application/json"
+				],
+				"produces": [
+					"application/json",
+					"application/xml"
+				],
+				"tags": [
+					"application"
+				],
+				"summary": "detail revision for application",
+				"operationId": "rollbackApplicationWithRevision",
+				"parameters": [
+					{
+						"type": "string",
+						"description": "identifier of the application",
+						"name": "appName",
+						"in": "path",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "identifier of the application revision",
+						"name": "revision",
+						"in": "path",
+						"required": true
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"schema": {
+							"$ref": "#/definitions/v1.ApplicationRollbackResponse"
+						}
+					},
+					"400": {
+						"description": "Bad Request",
+						"schema": {
+							"$ref": "#/definitions/bcode.Bcode"
+						}
+					}
+				}
+			}
+		},
 		"/api/v1/applications/{appName}/statistics": {
 			"get": {
 				"consumes": [
@@ -2039,7 +2086,7 @@
 				"tags": [
 					"application"
 				],
-				"summary": "list application triggers",
+				"summary": "List the application triggers",
 				"operationId": "listApplicationTriggers",
 				"parameters": [
 					{
@@ -2077,7 +2124,7 @@
 				"tags": [
 					"application"
 				],
-				"summary": "create one application trigger",
+				"summary": "Create an application trigger",
 				"operationId": "createApplicationTrigger",
 				"parameters": [
 					{
@@ -2113,6 +2160,51 @@
 			}
 		},
 		"/api/v1/applications/{appName}/triggers/{token}": {
+			"put": {
+				"consumes": [
+					"application/xml",
+					"application/json"
+				],
+				"produces": [
+					"application/json",
+					"application/xml"
+				],
+				"tags": [
+					"application"
+				],
+				"summary": "Update an application trigger",
+				"operationId": "updateApplicationTrigger",
+				"parameters": [
+					{
+						"type": "string",
+						"description": "identifier of the application ",
+						"name": "appName",
+						"in": "path",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "identifier of the trigger",
+						"name": "token",
+						"in": "path",
+						"required": true
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"schema": {
+							"$ref": "#/definitions/v1.ApplicationTriggerBase"
+						}
+					},
+					"400": {
+						"description": "Bad Request",
+						"schema": {
+							"$ref": "#/definitions/bcode.Bcode"
+						}
+					}
+				}
+			},
 			"delete": {
 				"consumes": [
 					"application/xml",
@@ -2125,7 +2217,7 @@
 				"tags": [
 					"application"
 				],
-				"summary": "delete one application trigger",
+				"summary": "Delete an application trigger",
 				"operationId": "deleteApplicationTrigger",
 				"parameters": [
 					{
@@ -2488,6 +2580,186 @@
 				}
 			}
 		},
+		"/api/v1/applications/{appName}/workflows/{workflowName}/records/{record}/inputs": {
+			"get": {
+				"consumes": [
+					"application/xml",
+					"application/json"
+				],
+				"produces": [
+					"application/json",
+					"application/xml"
+				],
+				"tags": [
+					"application"
+				],
+				"summary": "get the workflow step inputs",
+				"operationId": "getWorkflowRecordInputs",
+				"parameters": [
+					{
+						"type": "string",
+						"description": "identifier of the application.",
+						"name": "appName",
+						"in": "path",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "identifier of the workflow",
+						"name": "workflowName",
+						"in": "path",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "identifier of the workflow record",
+						"name": "record",
+						"in": "path",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "Specified the step filter",
+						"name": "step",
+						"in": "query",
+						"required": true
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"schema": {
+							"$ref": "#/definitions/v1.GetPipelineRunInputResponse"
+						}
+					},
+					"400": {
+						"description": "Bad Request",
+						"schema": {
+							"$ref": "#/definitions/bcode.Bcode"
+						}
+					}
+				}
+			}
+		},
+		"/api/v1/applications/{appName}/workflows/{workflowName}/records/{record}/logs": {
+			"get": {
+				"consumes": [
+					"application/xml",
+					"application/json"
+				],
+				"produces": [
+					"application/json",
+					"application/xml"
+				],
+				"tags": [
+					"application"
+				],
+				"summary": "get the workflow step logs",
+				"operationId": "getWorkflowRecordLogs",
+				"parameters": [
+					{
+						"type": "string",
+						"description": "identifier of the application.",
+						"name": "appName",
+						"in": "path",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "identifier of the workflow",
+						"name": "workflowName",
+						"in": "path",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "identifier of the workflow record",
+						"name": "record",
+						"in": "path",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "Specified the step filter",
+						"name": "step",
+						"in": "query",
+						"required": true
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK"
+					},
+					"400": {
+						"description": "Bad Request",
+						"schema": {
+							"$ref": "#/definitions/bcode.Bcode"
+						}
+					}
+				}
+			}
+		},
+		"/api/v1/applications/{appName}/workflows/{workflowName}/records/{record}/outputs": {
+			"get": {
+				"consumes": [
+					"application/xml",
+					"application/json"
+				],
+				"produces": [
+					"application/json",
+					"application/xml"
+				],
+				"tags": [
+					"application"
+				],
+				"summary": "get the workflow step inputs",
+				"operationId": "getWorkflowRecordOutputs",
+				"parameters": [
+					{
+						"type": "string",
+						"description": "identifier of the application.",
+						"name": "appName",
+						"in": "path",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "identifier of the workflow",
+						"name": "workflowName",
+						"in": "path",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "identifier of the workflow record",
+						"name": "record",
+						"in": "path",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "Specified the step filter",
+						"name": "step",
+						"in": "query",
+						"required": true
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"schema": {
+							"$ref": "#/definitions/v1.GetPipelineRunOutputResponse"
+						}
+					},
+					"400": {
+						"description": "Bad Request",
+						"schema": {
+							"$ref": "#/definitions/bcode.Bcode"
+						}
+					}
+				}
+			}
+		},
 		"/api/v1/applications/{appName}/workflows/{workflowName}/records/{record}/resume": {
 			"get": {
 				"consumes": [
@@ -2528,7 +2800,10 @@
 				],
 				"responses": {
 					"200": {
-						"description": "OK"
+						"description": "OK",
+						"schema": {
+							"$ref": "#/definitions/v1.EmptyResponse"
+						}
 					},
 					"400": {
 						"description": "Bad Request",
@@ -2585,7 +2860,10 @@
 				],
 				"responses": {
 					"200": {
-						"description": "OK"
+						"description": "OK",
+						"schema": {
+							"$ref": "#/definitions/v1.WorkflowRecordBase"
+						}
 					},
 					"400": {
 						"description": "Bad Request",
@@ -2636,7 +2914,10 @@
 				],
 				"responses": {
 					"200": {
-						"description": "OK"
+						"description": "OK",
+						"schema": {
+							"$ref": "#/definitions/v1.EmptyResponse"
+						}
 					},
 					"400": {
 						"description": "Bad Request",
@@ -3760,6 +4041,12 @@
 						"description": "query by which addon created the definition",
 						"name": "ownerAddon",
 						"in": "query"
+					},
+					{
+						"type": "string",
+						"description": "query by the specified scope like WorkflowRun or Application",
+						"name": "scope",
+						"in": "query"
 					}
 				],
 				"responses": {
@@ -4266,7 +4553,7 @@
 					"project"
 				],
 				"summary": "list all projects",
-				"operationId": "listprojects",
+				"operationId": "listProjects",
 				"responses": {
 					"200": {
 						"description": "OK",
@@ -4289,7 +4576,7 @@
 					"project"
 				],
 				"summary": "create a project",
-				"operationId": "createproject",
+				"operationId": "createProject",
 				"parameters": [
 					{
 						"name": "body",
@@ -5806,6 +6093,60 @@
 				}
 			}
 		},
+		"/api/v1/projects/{projectName}/pipelines/{pipelineName}/runs/{runName}/resume": {
+			"post": {
+				"consumes": [
+					"application/xml",
+					"application/json"
+				],
+				"produces": [
+					"application/json",
+					"application/xml"
+				],
+				"tags": [
+					"pipeline"
+				],
+				"summary": "resume suspend pipeline run",
+				"operationId": "resumePipelineRun",
+				"parameters": [
+					{
+						"type": "string",
+						"description": "project name",
+						"name": "projectName",
+						"in": "path",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "pipeline name",
+						"name": "pipelineName",
+						"in": "path",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "pipeline run name",
+						"name": "runName",
+						"in": "path",
+						"required": true
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"schema": {
+							"$ref": "#/definitions/v1.EmptyResponse"
+						}
+					},
+					"400": {
+						"description": "Bad Request",
+						"schema": {
+							"$ref": "#/definitions/bcode.Bcode"
+						}
+					}
+				}
+			}
+		},
 		"/api/v1/projects/{projectName}/pipelines/{pipelineName}/runs/{runName}/status": {
 			"get": {
 				"consumes": [
@@ -5903,6 +6244,60 @@
 						"description": "OK",
 						"schema": {
 							"$ref": "#/definitions/v1.PipelineRunMeta"
+						}
+					},
+					"400": {
+						"description": "Bad Request",
+						"schema": {
+							"$ref": "#/definitions/bcode.Bcode"
+						}
+					}
+				}
+			}
+		},
+		"/api/v1/projects/{projectName}/pipelines/{pipelineName}/runs/{runName}/terminate": {
+			"post": {
+				"consumes": [
+					"application/xml",
+					"application/json"
+				],
+				"produces": [
+					"application/json",
+					"application/xml"
+				],
+				"tags": [
+					"pipeline"
+				],
+				"summary": "resume suspend pipeline run",
+				"operationId": "terminatePipelineRun",
+				"parameters": [
+					{
+						"type": "string",
+						"description": "project name",
+						"name": "projectName",
+						"in": "path",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "pipeline name",
+						"name": "pipelineName",
+						"in": "path",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "pipeline run name",
+						"name": "runName",
+						"in": "path",
+						"required": true
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"schema": {
+							"$ref": "#/definitions/v1.EmptyResponse"
 						}
 					},
 					"400": {
@@ -6237,7 +6632,7 @@
 				"tags": [
 					"project"
 				],
-				"summary": "add a user to a project",
+				"summary": "update a user from a project",
 				"operationId": "updateProjectUser",
 				"parameters": [
 					{
@@ -7560,6 +7955,9 @@
 			"properties": {
 				"name": {
 					"type": "string"
+				},
+				"version": {
+					"type": "string"
 				}
 			}
 		},
@@ -8295,6 +8693,9 @@
 				"deleteResource": {
 					"type": "boolean"
 				},
+				"gitCredentialsSecretReference": {
+					"$ref": "#/definitions/v1.SecretReference"
+				},
 				"path": {
 					"type": "string"
 				},
@@ -8608,8 +9009,8 @@
 		},
 		"model.ApplicationRevision": {
 			"required": [
-				"createTime",
 				"updateTime",
+				"createTime",
 				"appPrimaryKey",
 				"version",
 				"revisionCRName",
@@ -8723,8 +9124,8 @@
 		},
 		"model.Cluster": {
 			"required": [
-				"updateTime",
 				"createTime",
+				"updateTime",
 				"name",
 				"alias",
 				"description",
@@ -8992,11 +9393,11 @@
 		"model.WorkflowStep": {
 			"required": [
 				"name",
-				"alias",
-				"orderIndex",
 				"dependsOn",
-				"type",
-				"description"
+				"description",
+				"orderIndex",
+				"alias",
+				"type"
 			],
 			"properties": {
 				"alias": {
@@ -9113,9 +9514,9 @@
 		},
 		"model.WorkflowStepStatus": {
 			"required": [
-				"id",
 				"name",
-				"alias"
+				"alias",
+				"id"
 			],
 			"properties": {
 				"alias": {
@@ -9698,12 +10099,13 @@
 		},
 		"v1.ApplicationDeployResponse": {
 			"required": [
-				"triggerType",
 				"version",
+				"createTime",
+				"status",
 				"note",
 				"envName",
-				"createTime",
-				"status"
+				"triggerType",
+				"record"
 			],
 			"properties": {
 				"codeInfo": {
@@ -9727,6 +10129,9 @@
 				},
 				"reason": {
 					"type": "string"
+				},
+				"record": {
+					"$ref": "#/definitions/v1.WorkflowRecordBase"
 				},
 				"status": {
 					"type": "string"
@@ -9834,6 +10239,16 @@
 				},
 				"version": {
 					"type": "string"
+				}
+			}
+		},
+		"v1.ApplicationRollbackResponse": {
+			"required": [
+				"record"
+			],
+			"properties": {
+				"record": {
+					"$ref": "#/definitions/v1.WorkflowRecordBase"
 				}
 			}
 		},
@@ -9968,6 +10383,7 @@
 				"type",
 				"payloadType",
 				"token",
+				"registry",
 				"createTime",
 				"updateTime"
 			],
@@ -9989,6 +10405,9 @@
 					"type": "string"
 				},
 				"payloadType": {
+					"type": "string"
+				},
+				"registry": {
 					"type": "string"
 				},
 				"token": {
@@ -10463,13 +10882,13 @@
 		},
 		"v1.ConfigTemplateDetail": {
 			"required": [
+				"sensitive",
+				"createTime",
 				"alias",
 				"name",
 				"namespace",
 				"description",
 				"scope",
-				"sensitive",
-				"createTime",
 				"schema",
 				"uiSchema"
 			],
@@ -10706,6 +11125,9 @@
 					"type": "string"
 				},
 				"payloadType": {
+					"type": "string"
+				},
+				"registry": {
 					"type": "string"
 				},
 				"type": {
@@ -11084,6 +11506,9 @@
 				"name": {
 					"type": "string"
 				},
+				"namespace": {
+					"type": "string"
+				},
 				"owner": {
 					"type": "string"
 				}
@@ -11167,6 +11592,8 @@
 		"v1.CreateWorkflowRequest": {
 			"required": [
 				"name",
+				"mode",
+				"subMode",
 				"default",
 				"envName"
 			],
@@ -11183,6 +11610,9 @@
 				"envName": {
 					"type": "string"
 				},
+				"mode": {
+					"type": "string"
+				},
 				"name": {
 					"type": "string"
 				},
@@ -11191,6 +11621,9 @@
 					"items": {
 						"$ref": "#/definitions/v1.WorkflowStep"
 					}
+				},
+				"subMode": {
+					"type": "string"
 				}
 			}
 		},
@@ -11285,10 +11718,10 @@
 		},
 		"v1.DetailAddonResponse": {
 			"required": [
-				"icon",
-				"invisible",
 				"name",
 				"version",
+				"icon",
+				"invisible",
 				"description",
 				"schema",
 				"uiSchema",
@@ -11369,13 +11802,13 @@
 		},
 		"v1.DetailApplicationResponse": {
 			"required": [
+				"name",
+				"alias",
 				"project",
 				"description",
 				"createTime",
 				"updateTime",
 				"icon",
-				"name",
-				"alias",
 				"policies",
 				"envBindings",
 				"resourceInfo"
@@ -11432,20 +11865,20 @@
 		},
 		"v1.DetailClusterResponse": {
 			"required": [
-				"apiServerURL",
-				"createTime",
-				"labels",
 				"status",
 				"provider",
-				"kubeConfig",
+				"dashboardURL",
+				"description",
+				"icon",
+				"labels",
+				"reason",
+				"apiServerURL",
+				"kubeConfigSecret",
+				"alias",
 				"updateTime",
 				"name",
-				"alias",
-				"icon",
-				"kubeConfigSecret",
-				"description",
-				"reason",
-				"dashboardURL",
+				"kubeConfig",
+				"createTime",
 				"resourceInfo"
 			],
 			"properties": {
@@ -11503,13 +11936,13 @@
 		},
 		"v1.DetailComponentResponse": {
 			"required": [
-				"creator",
-				"alias",
 				"appPrimaryKey",
+				"creator",
 				"name",
 				"main",
 				"createTime",
 				"updateTime",
+				"alias",
 				"type",
 				"definition"
 			],
@@ -11598,13 +12031,13 @@
 		},
 		"v1.DetailDefinitionResponse": {
 			"required": [
-				"name",
 				"alias",
-				"status",
-				"description",
-				"icon",
 				"labels",
 				"ownerAddon",
+				"name",
+				"description",
+				"icon",
+				"status",
 				"schema",
 				"uiSchema"
 			],
@@ -11661,15 +12094,15 @@
 		},
 		"v1.DetailPolicyResponse": {
 			"required": [
+				"name",
+				"type",
+				"description",
+				"createTime",
+				"updateTime",
 				"alias",
 				"creator",
 				"properties",
-				"createTime",
-				"updateTime",
-				"envName",
-				"name",
-				"type",
-				"description"
+				"envName"
 			],
 			"properties": {
 				"alias": {
@@ -11711,18 +12144,18 @@
 		},
 		"v1.DetailRevisionResponse": {
 			"required": [
-				"createTime",
-				"updateTime",
-				"triggerType",
 				"status",
-				"workflowName",
-				"version",
+				"note",
+				"appPrimaryKey",
+				"deployUser",
+				"triggerType",
+				"updateTime",
+				"revisionCRName",
 				"reason",
 				"envName",
-				"appPrimaryKey",
-				"revisionCRName",
-				"deployUser",
-				"note"
+				"version",
+				"workflowName",
+				"createTime"
 			],
 			"properties": {
 				"appPrimaryKey": {
@@ -11780,9 +12213,9 @@
 		"v1.DetailTargetResponse": {
 			"required": [
 				"updateTime",
-				"project",
+				"name",
 				"createTime",
-				"name"
+				"project"
 			],
 			"properties": {
 				"alias": {
@@ -11822,11 +12255,11 @@
 		},
 		"v1.DetailUserResponse": {
 			"required": [
+				"disabled",
+				"createTime",
 				"lastLoginTime",
 				"name",
 				"email",
-				"disabled",
-				"createTime",
 				"projects",
 				"roles"
 			],
@@ -11867,9 +12300,11 @@
 		},
 		"v1.DetailWorkflowRecordResponse": {
 			"required": [
+				"status",
 				"workflowAlias",
 				"applicationRevision",
-				"status",
+				"message",
+				"mode",
 				"name",
 				"namespace",
 				"workflowName",
@@ -11887,6 +12322,16 @@
 					"format": "date-time"
 				},
 				"deployUser": {
+					"type": "string"
+				},
+				"endTime": {
+					"type": "string",
+					"format": "date-time"
+				},
+				"message": {
+					"type": "string"
+				},
+				"mode": {
 					"type": "string"
 				},
 				"name": {
@@ -11924,14 +12369,16 @@
 		},
 		"v1.DetailWorkflowResponse": {
 			"required": [
-				"createTime",
 				"name",
-				"alias",
-				"default",
+				"enable",
 				"envName",
-				"updateTime",
+				"alias",
 				"description",
-				"enable"
+				"default",
+				"createTime",
+				"updateTime",
+				"mode",
+				"subMode"
 			],
 			"properties": {
 				"alias": {
@@ -11953,6 +12400,9 @@
 				"envName": {
 					"type": "string"
 				},
+				"mode": {
+					"type": "string"
+				},
 				"name": {
 					"type": "string"
 				},
@@ -11961,6 +12411,9 @@
 					"items": {
 						"$ref": "#/definitions/v1.WorkflowStep"
 					}
+				},
+				"subMode": {
+					"type": "string"
 				},
 				"updateTime": {
 					"type": "string",
@@ -12001,6 +12454,9 @@
 					"items": {
 						"type": "string"
 					}
+				},
+				"registryName": {
+					"type": "string"
 				},
 				"version": {
 					"type": "string"
@@ -12081,7 +12537,8 @@
 				"createTime",
 				"updateTime",
 				"appDeployName",
-				"appDeployNamespace"
+				"appDeployNamespace",
+				"workflow"
 			],
 			"properties": {
 				"alias": {
@@ -12121,13 +12578,16 @@
 				"updateTime": {
 					"type": "string",
 					"format": "date-time"
+				},
+				"workflow": {
+					"$ref": "#/definitions/v1.NameAlias"
 				}
 			}
 		},
 		"v1.EnvBindingTarget": {
 			"required": [
-				"name",
-				"alias"
+				"alias",
+				"name"
 			],
 			"properties": {
 				"alias": {
@@ -12153,12 +12613,12 @@
 		},
 		"v1.GetPipelineResponse": {
 			"required": [
+				"spec",
+				"description",
+				"createTime",
 				"name",
 				"alias",
 				"project",
-				"description",
-				"createTime",
-				"spec",
 				"info"
 			],
 			"properties": {
@@ -12201,10 +12661,11 @@
 		},
 		"v1.GetPipelineRunLogResponse": {
 			"required": [
-				"type",
-				"phase",
 				"id",
 				"name",
+				"type",
+				"phase",
+				"source",
 				"log"
 			],
 			"properties": {
@@ -12218,6 +12679,9 @@
 					"type": "string"
 				},
 				"phase": {
+					"type": "string"
+				},
+				"source": {
 					"type": "string"
 				},
 				"type": {
@@ -13060,11 +13524,11 @@
 		},
 		"v1.PipelineBase": {
 			"required": [
+				"description",
+				"createTime",
 				"name",
 				"alias",
 				"project",
-				"description",
-				"createTime",
 				"spec"
 			],
 			"properties": {
@@ -13190,13 +13654,13 @@
 		},
 		"v1.PipelineRun": {
 			"required": [
-				"spec",
-				"pipelineRunName",
-				"pipelineName",
-				"project",
-				"record",
 				"contextName",
 				"contextValues",
+				"spec",
+				"pipelineName",
+				"project",
+				"pipelineRunName",
+				"record",
 				"status"
 			],
 			"properties": {
@@ -13232,9 +13696,9 @@
 		},
 		"v1.PipelineRunBase": {
 			"required": [
-				"pipelineRunName",
 				"pipelineName",
 				"project",
+				"pipelineRunName",
 				"record",
 				"contextName",
 				"contextValues",
@@ -13587,6 +14051,19 @@
 				}
 			}
 		},
+		"v1.SecretReference": {
+			"description": "SecretReference represents a Secret Reference. It has enough information to retrieve secret in any namespace",
+			"properties": {
+				"name": {
+					"description": "name is unique within a namespace to reference a secret resource.",
+					"type": "string"
+				},
+				"namespace": {
+					"description": "namespace defines the space within which the secret name must be unique.",
+					"type": "string"
+				}
+			}
+		},
 		"v1.SimpleResponse": {
 			"required": [
 				"status"
@@ -13780,9 +14257,9 @@
 		},
 		"v1.SystemInfoResponse": {
 			"required": [
-				"enableCollection",
 				"loginType",
 				"platformID",
+				"enableCollection",
 				"systemVersion"
 			],
 			"properties": {
@@ -14171,6 +14648,8 @@
 		},
 		"v1.UpdateWorkflowRequest": {
 			"required": [
+				"mode",
+				"subMode",
 				"default"
 			],
 			"properties": {
@@ -14183,11 +14662,17 @@
 				"description": {
 					"type": "string"
 				},
+				"mode": {
+					"type": "string"
+				},
 				"steps": {
 					"type": "array",
 					"items": {
 						"$ref": "#/definitions/v1.WorkflowStep"
 					}
+				},
+				"subMode": {
+					"type": "string"
 				}
 			}
 		},
@@ -14234,7 +14719,9 @@
 				"default",
 				"envName",
 				"createTime",
-				"updateTime"
+				"updateTime",
+				"mode",
+				"subMode"
 			],
 			"properties": {
 				"alias": {
@@ -14256,6 +14743,9 @@
 				"envName": {
 					"type": "string"
 				},
+				"mode": {
+					"type": "string"
+				},
 				"name": {
 					"type": "string"
 				},
@@ -14264,6 +14754,9 @@
 					"items": {
 						"$ref": "#/definitions/v1.WorkflowStep"
 					}
+				},
+				"subMode": {
+					"type": "string"
 				},
 				"updateTime": {
 					"type": "string",
@@ -14290,15 +14783,27 @@
 		},
 		"v1.WorkflowRecord": {
 			"required": [
+				"status",
 				"name",
 				"namespace",
 				"workflowName",
 				"workflowAlias",
 				"applicationRevision",
-				"status"
+				"mode",
+				"message"
 			],
 			"properties": {
 				"applicationRevision": {
+					"type": "string"
+				},
+				"endTime": {
+					"type": "string",
+					"format": "date-time"
+				},
+				"message": {
+					"type": "string"
+				},
+				"mode": {
 					"type": "string"
 				},
 				"name": {
@@ -14328,10 +14833,56 @@
 				}
 			}
 		},
+		"v1.WorkflowRecordBase": {
+			"required": [
+				"name",
+				"namespace",
+				"workflowName",
+				"workflowAlias",
+				"applicationRevision",
+				"status",
+				"message",
+				"mode"
+			],
+			"properties": {
+				"applicationRevision": {
+					"type": "string"
+				},
+				"endTime": {
+					"type": "string",
+					"format": "date-time"
+				},
+				"message": {
+					"type": "string"
+				},
+				"mode": {
+					"type": "string"
+				},
+				"name": {
+					"type": "string"
+				},
+				"namespace": {
+					"type": "string"
+				},
+				"startTime": {
+					"type": "string",
+					"format": "date-time"
+				},
+				"status": {
+					"type": "string"
+				},
+				"workflowAlias": {
+					"type": "string"
+				},
+				"workflowName": {
+					"type": "string"
+				}
+			}
+		},
 		"v1.WorkflowStep": {
 			"required": [
-				"type",
-				"name"
+				"name",
+				"type"
 			],
 			"properties": {
 				"alias": {
@@ -14368,7 +14919,7 @@
 					}
 				},
 				"properties": {
-					"type": "string"
+					"type": "object"
 				},
 				"subSteps": {
 					"type": "array",
@@ -14424,7 +14975,7 @@
 					}
 				},
 				"properties": {
-					"type": "string"
+					"type": "object"
 				},
 				"timeout": {
 					"type": "string"
@@ -14546,9 +15097,6 @@
 		},
 		"v1alpha1.WorkflowSpec": {
 			"properties": {
-				"mode": {
-					"$ref": "#/definitions/v1alpha1.WorkflowExecuteMode"
-				},
 				"steps": {
 					"type": "array",
 					"items": {
@@ -14559,8 +15107,7 @@
 		},
 		"v1alpha1.WorkflowStep": {
 			"required": [
-				"type",
-				"name"
+				"type"
 			],
 			"properties": {
 				"dependsOn": {
@@ -14609,7 +15156,6 @@
 		},
 		"v1alpha1.WorkflowStepBase": {
 			"required": [
-				"name",
 				"type"
 			],
 			"properties": {
@@ -14697,7 +15243,6 @@
 		},
 		"v1alpha1.inputItem": {
 			"required": [
-				"parameterKey",
 				"from"
 			],
 			"properties": {

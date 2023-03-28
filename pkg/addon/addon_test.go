@@ -22,7 +22,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -122,19 +121,19 @@ var ossHandler http.HandlerFunc = func(rw http.ResponseWriter, req *http.Request
 var helmHandler http.HandlerFunc = func(writer http.ResponseWriter, request *http.Request) {
 	switch {
 	case strings.Contains(request.URL.Path, "index.yaml"):
-		files, err := ioutil.ReadFile("./testdata/multiversion-helm-repo/index.yaml")
+		files, err := os.ReadFile("./testdata/multiversion-helm-repo/index.yaml")
 		if err != nil {
 			_, _ = writer.Write([]byte(err.Error()))
 		}
 		writer.Write(files)
 	case strings.Contains(request.URL.Path, "fluxcd-1.0.0.tgz"):
-		files, err := ioutil.ReadFile("./testdata/multiversion-helm-repo/fluxcd-1.0.0.tgz")
+		files, err := os.ReadFile("./testdata/multiversion-helm-repo/fluxcd-1.0.0.tgz")
 		if err != nil {
 			_, _ = writer.Write([]byte(err.Error()))
 		}
 		writer.Write(files)
 	case strings.Contains(request.URL.Path, "fluxcd-2.0.0.tgz"):
-		files, err := ioutil.ReadFile("./testdata/multiversion-helm-repo/fluxcd-2.0.0.tgz")
+		files, err := os.ReadFile("./testdata/multiversion-helm-repo/fluxcd-2.0.0.tgz")
 		if err != nil {
 			_, _ = writer.Write([]byte(err.Error()))
 		}
@@ -297,6 +296,41 @@ func TestRenderK8sObjects(t *testing.T) {
 	assert.Equal(t, len(app.Spec.Components), 1)
 	comp := app.Spec.Components[0]
 	assert.Equal(t, comp.Type, "k8s-objects")
+}
+
+func TestGetClusters(t *testing.T) {
+	// string array test
+	args := map[string]interface{}{
+		types.ClustersArg: []string{
+			"cluster1", "cluster2",
+		},
+	}
+	clusters := getClusters(args)
+	assert.Equal(t, clusters, []string{
+		"cluster1", "cluster2",
+	})
+	// interface array test
+	args1 := map[string]interface{}{
+		types.ClustersArg: []interface{}{
+			"cluster3", "cluster4",
+		},
+	}
+	clusters1 := getClusters(args1)
+	assert.Equal(t, clusters1, []string{
+		"cluster3", "cluster4",
+	})
+	// no cluster arg test
+	args2 := map[string]interface{}{
+		"anyargkey": "anyargvalue",
+	}
+	clusters2 := getClusters(args2)
+	assert.Nil(t, clusters2)
+	// other type test
+	args3 := map[string]interface{}{
+		types.ClustersArg: "cluster5",
+	}
+	clusters3 := getClusters(args3)
+	assert.Nil(t, clusters3)
 }
 
 func TestGetAddonStatus(t *testing.T) {
@@ -1057,7 +1091,7 @@ func TestCheckEnableAddonErrorWhenMissMatch(t *testing.T) {
 	version2.VelaVersion = "v1.3.0"
 	i := InstallPackage{Meta: Meta{SystemRequirements: &SystemRequirements{VelaVersion: ">=1.4.0"}}}
 	installer := &Installer{}
-	err := installer.enableAddon(&i)
+	_, err := installer.enableAddon(&i)
 	assert.Equal(t, errors.As(err, &VersionUnMatchError{}), true)
 }
 
@@ -1082,7 +1116,6 @@ func TestPackageAddon(t *testing.T) {
 	archiver, err = PackageAddon(invalidAddonMetadata)
 	assert.NotNil(t, err)
 	assert.Equal(t, "", archiver)
-
 }
 
 func TestGenerateAnnotation(t *testing.T) {

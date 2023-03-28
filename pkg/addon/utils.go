@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -244,18 +245,18 @@ func findLegacyAddonDefs(ctx context.Context, k8sClient client.Client, addonName
 	return nil
 }
 
-func usingAppsInfo(apps []v1beta1.Application) string {
-	res := "addon is being used :"
-	appsNamespaceNameList := map[string][]string{}
+func appsDependsOnAddonErrInfo(apps []v1beta1.Application) string {
+	var appsNamespaceNameList []string
+	i := 0
 	for _, app := range apps {
-		appsNamespaceNameList[app.GetNamespace()] = append(appsNamespaceNameList[app.GetNamespace()], app.GetName())
+		appsNamespaceNameList = append(appsNamespaceNameList, app.Namespace+"/"+app.Name)
+		i++
+		if i > 2 && len(apps) > i {
+			appsNamespaceNameList = append(appsNamespaceNameList, fmt.Sprintf("and other %d more", len(apps)-i))
+			break
+		}
 	}
-	for namespace, appNames := range appsNamespaceNameList {
-		nameStr := strings.Join(appNames, ",")
-		res += fmt.Sprintf("{%s} in namespace:%s,", nameStr, namespace)
-	}
-	res = strings.TrimSuffix(res, ",") + ".Please delete them before disabling the addon."
-	return res
+	return fmt.Sprintf("this addon is being used by: %s applications. Please delete all of them before removing.", strings.Join(appsNamespaceNameList, ", "))
 }
 
 // IsVersionRegistry  check the repo source if support multi-version addon
@@ -501,6 +502,19 @@ func checkBondComponentExist(u unstructured.Unstructured, app v1beta1.Applicatio
 		}
 	}
 	return false
+}
+
+func validateAddonPackage(addonPkg *InstallPackage) error {
+	if reflect.DeepEqual(addonPkg.Meta, Meta{}) {
+		return fmt.Errorf("the addon package doesn't have `metadata.yaml`")
+	}
+	if addonPkg.Name == "" {
+		return fmt.Errorf("`matadata.yaml` must define the name of addon")
+	}
+	if addonPkg.Version == "" {
+		return fmt.Errorf("`matadata.yaml` must define the version of addon")
+	}
+	return nil
 }
 
 // FilterDependencyRegistries will return all registries besides the target registry itself

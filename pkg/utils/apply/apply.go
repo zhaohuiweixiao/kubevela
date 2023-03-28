@@ -121,8 +121,8 @@ func loggingApply(msg string, desired client.Object, quiet bool) {
 	klog.InfoS(msg, "name", d.GetName(), "resource", desired.GetObjectKind().GroupVersionKind().String())
 }
 
-// filterRecordForSpecial will filter special object that can reduce the record for "app.oam.dev/last-applied-configuration" annotation.
-func filterRecordForSpecial(desired client.Object) bool {
+// trimLastAppliedConfigurationForSpecialResources will filter special object that can reduce the record for "app.oam.dev/last-applied-configuration" annotation.
+func trimLastAppliedConfigurationForSpecialResources(desired client.Object) bool {
 	if desired == nil {
 		return false
 	}
@@ -159,7 +159,7 @@ func (a *APIApplicator) Apply(ctx context.Context, desired client.Object, ao ...
 	if err != nil {
 		return err
 	}
-	applyAct := &applyAction{updateAnnotation: filterRecordForSpecial(desired)}
+	applyAct := &applyAction{updateAnnotation: trimLastAppliedConfigurationForSpecialResources(desired)}
 	existing, err := a.createOrGetExisting(ctx, applyAct, a.c, desired, ao...)
 	if err != nil {
 		return err
@@ -192,6 +192,9 @@ func (a *APIApplicator) Apply(ctx context.Context, desired client.Object, ao ...
 		patch, err := a.patcher.patch(existing, desired, applyAct)
 		if err != nil {
 			return errors.Wrap(err, "cannot calculate patch by computing a three way diff")
+		}
+		if isEmptyPatch(patch) {
+			return nil
 		}
 		if applyAct.dryRun {
 			return errors.Wrapf(a.c.Patch(ctx, desired, patch, client.DryRunAll), "cannot patch object")
@@ -231,7 +234,7 @@ func createOrGetExisting(ctx context.Context, act *applyAction, c client.Client,
 			return nil, err
 		}
 		if act.readOnly {
-			return nil, fmt.Errorf("cannot create %s (%s) in read-only mode", desired.GetObjectKind().GroupVersionKind().Kind, desired.GetName())
+			return nil, fmt.Errorf("%s (%s) is marked as read-only but does not exist. You should check the existence of the resource or remove the read-only policy", desired.GetObjectKind().GroupVersionKind().Kind, desired.GetName())
 		}
 		if act.updateAnnotation {
 			if err := addLastAppliedConfigAnnotation(desired); err != nil {

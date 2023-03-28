@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -195,7 +194,7 @@ func TestHttpGetCaFile(t *testing.T) {
 		assert.NoError(t, err)
 	}()
 	time.Sleep(time.Millisecond)
-	caFile, err := ioutil.ReadFile("./testdata/server.crt")
+	caFile, err := os.ReadFile("./testdata/server.crt")
 	assert.NoError(t, err)
 
 	cases := map[string]struct {
@@ -588,4 +587,11 @@ func TestHTTPGetKubernetesObjects(t *testing.T) {
 	assert.Equal(t, "Deployment", uns[0].GetKind())
 	assert.Equal(t, "busybox", uns[1].GetName())
 	assert.Equal(t, "ConfigMap", uns[1].GetKind())
+}
+
+func TestGetRawConfig(t *testing.T) {
+	assert.NoError(t, os.Setenv("KUBECONFIG", filepath.Join("testdata", "testkube.conf")))
+	ag := Args{}
+	ns := ag.GetNamespaceFromConfig()
+	assert.Equal(t, "prod", ns)
 }

@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/oam-dev/kubevela/pkg/oam"
 	"github.com/oam-dev/kubevela/pkg/oam/testutil"
 
 	. "github.com/onsi/ginkgo"
@@ -94,17 +95,9 @@ var _ = Describe("Test application controller finalizer logic", func() {
 		By("Verify latest app revision is also recorded in status")
 		Expect(checkApp.Status.LatestRevision).ShouldNot(BeNil())
 
-		By("Verify ResourceTracker is created")
-		rt := &v1beta1.ResourceTracker{}
-		Expect(k8sClient.Get(ctx, getTrackerKey(checkApp.Namespace, checkApp.Name, "v1"), rt)).Should(Succeed())
-
 		By("Delete Application")
 		Expect(k8sClient.Delete(ctx, checkApp)).Should(BeNil())
 		testutil.ReconcileOnceAfterFinalizer(reconciler, ctrl.Request{NamespacedName: appKey})
-
-		By("Verify ResourceTracker is deleted")
-		rt = &v1beta1.ResourceTracker{}
-		Expect(k8sClient.Get(ctx, getTrackerKey(checkApp.Namespace, checkApp.Name, "v1"), rt)).Should(util.NotFoundMatcher{})
 	})
 
 	It("Test cross namespace workload, then delete the app", func() {
@@ -125,7 +118,7 @@ var _ = Describe("Test application controller finalizer logic", func() {
 		checkApp = new(v1beta1.Application)
 		Expect(k8sClient.Get(ctx, appKey, checkApp)).Should(BeNil())
 		Expect(len(checkApp.Finalizers)).Should(BeEquivalentTo(1))
-		Expect(checkApp.Finalizers[0]).Should(BeEquivalentTo(resourceTrackerFinalizer))
+		Expect(checkApp.Finalizers[0]).Should(BeEquivalentTo(oam.FinalizerResourceTracker))
 		By("delete this cross workload app")
 		Expect(k8sClient.Delete(ctx, checkApp)).Should(BeNil())
 		By("delete app will delete resourceTracker")
@@ -156,7 +149,7 @@ var _ = Describe("Test application controller finalizer logic", func() {
 		checkApp = new(v1beta1.Application)
 		Expect(k8sClient.Get(ctx, appKey, checkApp)).Should(BeNil())
 		Expect(len(checkApp.Finalizers)).Should(BeEquivalentTo(1))
-		Expect(checkApp.Finalizers[0]).Should(BeEquivalentTo(resourceTrackerFinalizer))
+		Expect(checkApp.Finalizers[0]).Should(BeEquivalentTo(oam.FinalizerResourceTracker))
 		Expect(len(rt.Spec.ManagedResources)).Should(BeEquivalentTo(1))
 		By("Update the app, set type to normal-worker")
 		checkApp.Spec.Components[0].Type = "normal-worker"

@@ -31,16 +31,16 @@ import (
 	apimachinerytypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	monitorContext "github.com/kubevela/pkg/monitor/context"
+	pkgmulticluster "github.com/kubevela/pkg/multicluster"
 	wfContext "github.com/kubevela/workflow/pkg/context"
 	"github.com/kubevela/workflow/pkg/cue/model/value"
 	"github.com/kubevela/workflow/pkg/types"
 
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1beta1"
-	"github.com/oam-dev/kubevela/pkg/apiserver/utils/log"
 	"github.com/oam-dev/kubevela/pkg/multicluster"
 	querytypes "github.com/oam-dev/kubevela/pkg/velaql/providers/query/types"
 )
@@ -172,7 +172,7 @@ func (h *provider) CollectResources(ctx monitorContext.Context, wfCtx wfContext.
 					Namespace:  app.Namespace,
 				}, object))
 			} else {
-				log.Logger.Errorf("failed to get the service:%s", err.Error())
+				klog.Errorf("failed to get the service:%s", err.Error())
 			}
 		}
 	}
@@ -230,6 +230,7 @@ func (h *provider) CollectLogsInPod(ctx monitorContext.Context, wfCtx wfContext.
 		return errors.Wrapf(err, "invalid log options content")
 	}
 	cliCtx := multicluster.ContextWithClusterName(ctx, cluster)
+	h.cfg.Wrap(pkgmulticluster.NewTransportWrapper())
 	clientSet, err := kubernetes.NewForConfig(h.cfg)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create kubernetes client")
@@ -238,12 +239,12 @@ func (h *provider) CollectLogsInPod(ctx monitorContext.Context, wfCtx wfContext.
 	var errMsg string
 	podInst, err := clientSet.CoreV1().Pods(namespace).Get(cliCtx, pod, v1.GetOptions{})
 	if err != nil {
-		errMsg = fmt.Sprintf("failed to get pod:%s", err.Error())
+		errMsg += fmt.Sprintf("failed to get pod: %s; ", err.Error())
 	}
 	req := clientSet.CoreV1().Pods(namespace).GetLogs(pod, opts)
 	readCloser, err := req.Stream(cliCtx)
 	if err != nil {
-		errMsg = fmt.Sprintf("failed to get stream logs %s", err.Error())
+		errMsg += fmt.Sprintf("failed to get stream logs %s; ", err.Error())
 	}
 	if readCloser != nil && podInst != nil {
 		r := bufio.NewReader(readCloser)
@@ -282,7 +283,7 @@ func (h *provider) CollectLogsInPod(ctx monitorContext.Context, wfCtx wfContext.
 			},
 		}
 		if readErr != nil {
-			errMsg = readErr.Error()
+			errMsg += readErr.Error()
 		}
 	}
 	if errMsg != "" {

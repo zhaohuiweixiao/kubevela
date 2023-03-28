@@ -1,9 +1,10 @@
 "apply-component": {
 	type: "workflow-step"
-	annotations: {}
+	annotations: {
+		"category": "Application Delivery"
+	}
 	labels: {
-		"ui-hidden": "true"
-		"scope":     "Application"
+		"scope": "Application"
 	}
 	description: "Apply a specific component and its corresponding traits in application"
 }

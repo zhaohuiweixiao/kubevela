@@ -166,10 +166,8 @@ spec:
             - "--use-webhook=true"
             - "--webhook-port={{ .Values.webhookService.port }}"
             - "--webhook-cert-dir={{ .Values.admissionWebhooks.certificate.mountPath }}"
-            - "--autogen-workload-definition={{ .Values.admissionWebhooks.autoGenWorkloadDefinition }}"
             {{ end }}
             - "--health-addr=:{{ .Values.healthCheck.port }}"
-            - "--apply-once-only={{ .Values.applyOnceOnly }}"
             {{ if ne .Values.disableCaps "" }}
             - "--disable-caps={{ .Values.disableCaps }}"
             {{ end }}
@@ -188,6 +186,7 @@ spec:
             - "--max-workflow-step-error-retry-times={{ .Values.workflow.step.errorRetryTimes }}"
             - "--feature-gates=EnableSuspendOnFailure={{- .Values.workflow.enableSuspendOnFailure | toString -}}"
             - "--feature-gates=AuthenticateApplication={{- .Values.authentication.enabled | toString -}}"
+            - "--feature-gates=ApplyOnce={{- .Values.featureGates.applyOnce | toString -}}"
             {{ if .Values.authentication.enabled }}
             {{ if .Values.authentication.withUser }}
             - "--authentication-with-user"
@@ -235,10 +234,19 @@ spec:
       nodeSelector:
       {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
       affinity:
-      {{- toYaml . | nindent 8 }}
-      {{- end }}
+      {{ if .Values.affinity }}
+        {{- toYaml .Values.affinity | nindent 8 }}
+      {{ else }}
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    {{- include "kubevela.selectorLabels" . | nindent 20 }}
+                topologyKey: kubernetes.io/hostname
+              weight: 100
+      {{ end }}
       {{- with .Values.tolerations }}
       tolerations:
     {{- toYaml . | nindent 8 }}

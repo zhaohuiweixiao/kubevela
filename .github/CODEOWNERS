@@ -26,12 +26,14 @@ vela-templates/                     @Somefive @barnettZQG @wonderflow @FogDong
 # Owner of vela CLI
 references/cli/                     @Somefive @zzxwill @StevenLeiZhang @charlie0129 @chivalryq
 
-# Owner of vela APIServer
-pkg/apiserver/                     @barnettZQG @yangsoon @FogDong
-
 # Owner of vela addon framework
 pkg/addon/                         @wangyikewxgm @wonderflow @charlie0129
 
 # Owner of resource keeper and tracker
 pkg/resourcekeeper                 @Somefive @FogDong
 pkg/resourcetracker                @Somefive @FogDong
+
+.github/                           @chivalryq @wonderflow
+makefiles                          @chivalryq @wonderflow
+go.*                               @chivalryq @wonderflow
+

@@ -22,7 +22,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+
+	"github.com/oam-dev/kubevela/pkg/utils/common"
 )
 
 func TestInfo(t *testing.T) {
@@ -33,15 +36,22 @@ func TestInfo(t *testing.T) {
 	}
 	cfg, err := testEnv.Start()
 	assert.NoError(t, err)
-	defer func() {
-		assert.NoError(t, testEnv.Stop())
-	}()
-	info := NewInfo()
-	info.Init(cfg)
+
+	k8sClient, err := client.New(cfg, client.Options{Scheme: common.Scheme})
+	assert.NoError(t, err)
+
+	info := NewInfo(&themeConfig)
+	info.Init(k8sClient, cfg)
+
 	assert.Equal(t, info.GetColumnCount(), 7)
 	assert.Equal(t, info.GetRowCount(), 6)
+
 	assert.Equal(t, info.GetCell(0, 0).Text, "Context:")
 	assert.Equal(t, info.GetCell(1, 0).Text, "K8S Version:")
 	assert.Equal(t, info.GetCell(2, 0).Text, "VelaCLI Version:")
 	assert.Equal(t, info.GetCell(3, 0).Text, "VelaCore Version:")
+
+	assert.Equal(t, info.GetCell(0, 0).Color, themeConfig.Info.Title.Color())
+
+	assert.NoError(t, testEnv.Stop())
 }

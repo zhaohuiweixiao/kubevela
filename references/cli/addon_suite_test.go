@@ -21,7 +21,6 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -269,7 +268,7 @@ var _ = Describe("Addon status or info", func() {
 			BeforeEach(func() {
 				// Delete KubeVela registry
 				ds := pkgaddon.NewRegistryDataStore(k8sClient)
-				Expect(ds.DeleteRegistry(context.Background(), "KubeVela")).To(Succeed())
+				Expect(ds.DeleteRegistry(context.Background(), "KubeVela")).Should(SatisfyAny(Succeed(), util.NotFoundMatcher{}))
 				// Install fluxcd locally
 				Expect(k8sClient.Create(context.Background(), &fluxcd)).Should(SatisfyAny(BeNil(), util.AlreadyExistMatcher{}))
 			})
@@ -287,6 +286,7 @@ var _ = Describe("Addon status or info", func() {
 					if err != nil {
 						return err
 					}
+					fmt.Println(addonName, res, err)
 					// Should include enabled status, like:
 					// fluxcd: enabled (1.1.0)
 					if !strings.Contains(res,
@@ -349,6 +349,11 @@ var _ = Describe("Addon status or info", func() {
 						"KubeVela",
 				))
 			})
+			It("should report addon not exist in any registry name", func() {
+				addonName := "not-exist"
+				_, _, err := generateAddonInfo(k8sClient, addonName)
+				Expect(err.Error()).Should(BeEquivalentTo("addon 'not-exist' not found in cluster or any registry"))
+			})
 		})
 	})
 })
@@ -392,7 +397,7 @@ var _ = Describe("Addon push command", func() {
 			}))
 
 			// Create new Helm home w/ test repo
-			tmp, err = ioutil.TempDir("", "helm-push-test")
+			tmp, err = os.MkdirTemp("", "helm-push-test")
 			Expect(err).To(Succeed())
 
 			// Add our helm repo to addon registry
@@ -496,7 +501,7 @@ var _ = Describe("Addon push command", func() {
 			ts.StartTLS()
 
 			// Create new Helm home w/ test repo
-			tmp, err = ioutil.TempDir("", "helm-push-test")
+			tmp, err = os.MkdirTemp("", "helm-push-test")
 			Expect(err).To(Succeed())
 
 			// Add our helm repo to addon registry

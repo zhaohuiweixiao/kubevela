@@ -94,7 +94,7 @@ func NewDryRunApplicationParser(cli client.Client, dm discoverymapper.DiscoveryM
 func (p *Parser) GenerateAppFile(ctx context.Context, app *v1beta1.Application) (*Appfile, error) {
 	if ctx, ok := ctx.(monitorContext.Context); ok {
 		subCtx := ctx.Fork("generate-app-file", monitorContext.DurationMetric(func(v float64) {
-			metrics.ParseAppFileDurationHistogram.WithLabelValues("application").Observe(v)
+			metrics.AppReconcileStageDurationHistogram.WithLabelValues("generate-appfile").Observe(v)
 		}))
 		defer subCtx.Commit("finish generate appFile")
 	}
@@ -311,9 +311,9 @@ func (p *Parser) GenerateAppFileFromRevision(appRev *v1beta1.ApplicationRevision
 			appfile.RelatedWorkflowStepDefinitions[workflowStep.Type] = def
 		}
 
-		appRev.Spec.WorkflowStepDefinitions = make(map[string]v1beta1.WorkflowStepDefinition)
+		appRev.Spec.WorkflowStepDefinitions = make(map[string]*v1beta1.WorkflowStepDefinition)
 		for name, def := range appfile.RelatedWorkflowStepDefinitions {
-			appRev.Spec.WorkflowStepDefinitions[name] = *def
+			appRev.Spec.WorkflowStepDefinitions[name] = def
 		}
 	}
 
@@ -482,7 +482,6 @@ func (p *Parser) loadWorkflowToAppfile(ctx context.Context, af *Appfile) error {
 		&step.DeployWorkflowStepGenerator{},
 		&step.Deploy2EnvWorkflowStepGenerator{},
 		&step.ApplyComponentWorkflowStepGenerator{},
-		&step.DeployPreApproveWorkflowStepGenerator{},
 	).Generate(af.app, af.WorkflowSteps)
 	return err
 }
@@ -638,6 +637,53 @@ func (p *Parser) ParseWorkloadFromRevision(comp common.ApplicationComponent, app
 	return workload, nil
 }
 
+// ParseWorkloadFromRevisionAndClient resolve an ApplicationComponent and generate a Workload
+// containing ALL information required by an Appfile from app revision, and will fall back to
+// load external definitions if not found
+func (p *Parser) ParseWorkloadFromRevisionAndClient(ctx context.Context, comp common.ApplicationComponent, appRev *v1beta1.ApplicationRevision) (*Workload, error) {
+	workload, err := p.makeWorkloadFromRevision(comp.Name, comp.Type, types.TypeComponentDefinition, comp.Properties, appRev)
+	if IsNotFoundInAppRevision(err) {
+		workload, err = p.makeWorkload(ctx, comp.Name, comp.Type, types.TypeComponentDefinition, comp.Properties)
+	}
+	if err != nil {
+		return nil, err
+	}
+	workload.ExternalRevision = comp.ExternalRevision
+
+	for _, traitValue := range comp.Traits {
+		properties, err := util.RawExtension2Map(traitValue.Properties)
+		if err != nil {
+			return nil, errors.Errorf("fail to parse properties of %s for %s", traitValue.Type, comp.Name)
+		}
+		trait, err := p.parseTraitFromRevision(traitValue.Type, properties, appRev)
+		if IsNotFoundInAppRevision(err) {
+			trait, err = p.parseTrait(ctx, traitValue.Type, properties)
+		}
+		if err != nil {
+			return nil, errors.WithMessagef(err, "component(%s) parse trait(%s)", comp.Name, traitValue.Type)
+		}
+
+		workload.Traits = append(workload.Traits, trait)
+	}
+
+	for scopeType, instanceName := range comp.Scopes {
+		sd, gvk, err := GetScopeDefAndGVKFromRevision(scopeType, appRev)
+		if IsNotFoundInAppRevision(err) {
+			sd, gvk, err = GetScopeDefAndGVK(ctx, p.client, p.dm, scopeType)
+		}
+		if err != nil {
+			return nil, err
+		}
+		workload.Scopes = append(workload.Scopes, Scope{
+			Name:            instanceName,
+			GVK:             gvk,
+			ResourceVersion: sd.Spec.Reference.Name + "/" + sd.Spec.Reference.Version,
+		})
+		workload.ScopeDefinition = append(workload.ScopeDefinition, sd)
+	}
+	return workload, nil
+}
+
 func (p *Parser) parseTrait(ctx context.Context, name string, properties map[string]interface{}) (*Trait, error) {
 	templ, err := p.tmplLoader.LoadTemplate(ctx, p.dm, p.client, name, types.TypeTrait)
 	if kerrors.IsNotFound(err) {
@@ -675,38 +721,14 @@ func (p *Parser) convertTemplate2Trait(name string, properties map[string]interf
 }
 
 // ValidateComponentNames validate all component name whether repeat in cluster and template
-func (p *Parser) ValidateComponentNames(ctx context.Context, af *Appfile) (int, error) {
-	existCompNames := make(map[string]string)
-	existApps := v1beta1.ApplicationList{}
-
-	listOpts := []client.ListOption{
-		client.InNamespace(af.Namespace),
-	}
-	if err := p.client.List(ctx, &existApps, listOpts...); err != nil {
-		return 0, err
-	}
-	for _, existApp := range existApps.Items {
-		ea := existApp.DeepCopy()
-		existAf, err := p.GenerateAppFile(ctx, ea)
-		if err != nil || existAf.Name == af.Name {
-			continue
+func (p *Parser) ValidateComponentNames(app *v1beta1.Application) (int, error) {
+	compNames := map[string]struct{}{}
+	for idx, comp := range app.Spec.Components {
+		if _, found := compNames[comp.Name]; found {
+			return idx, fmt.Errorf("duplicated component name %s", comp.Name)
 		}
-		for _, existComp := range existAf.Workloads {
-			existCompNames[existComp.Name] = existApp.Name
-		}
+		compNames[comp.Name] = struct{}{}
 	}
-
-	for i, wl := range af.Workloads {
-		if existAfName, ok := existCompNames[wl.Name]; ok {
-			return i, fmt.Errorf("component named '%s' is already exist in application '%s'", wl.Name, existAfName)
-		}
-		for j := i + 1; j < len(af.Workloads); j++ {
-			if wl.Name == af.Workloads[j].Name {
-				return i, fmt.Errorf("component named '%s' is repeat in this appfile", wl.Name)
-			}
-		}
-	}
-
 	return 0, nil
 }
 

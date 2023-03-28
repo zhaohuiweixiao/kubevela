@@ -110,6 +110,9 @@ const (
 
 	// LabelControllerName indicates the controller name
 	LabelControllerName = "controller.oam.dev/name"
+
+	// LabelPreCheck indicates if the target resource is for pre-check test
+	LabelPreCheck = "core.oam.dev/pre-check"
 )
 
 const (
@@ -176,9 +179,6 @@ const (
 	// AnnotationDefinitionRevisionName is used to specify the name of DefinitionRevision in component/trait definition
 	AnnotationDefinitionRevisionName = "definitionrevision.oam.dev/name"
 
-	// AnnotationResourceTrackerLifeLong is used to identify life-long resourcetracker which should only be recycled when application is deleted
-	AnnotationResourceTrackerLifeLong = "resourcetracker.oam.dev/life-long"
-
 	// AnnotationAddonsName records the name of initializer stored in configMap
 	AnnotationAddonsName = "addons.oam.dev/name"
 
@@ -242,4 +242,12 @@ const (
 	ResourceTopologyFormatYAML = "yaml"
 	// ResourceTopologyFormatJSON mark the format of resource topology is json.
 	ResourceTopologyFormatJSON = "json"
+)
+
+const (
+	// FinalizerResourceTracker is the application finalizer for gc
+	FinalizerResourceTracker = "app.oam.dev/resource-tracker-finalizer"
+	// FinalizerOrphanResource indicates that the gc process should orphan managed
+	// resources instead of deleting them
+	FinalizerOrphanResource = "app.oam.dev/orphan-resource"
 )

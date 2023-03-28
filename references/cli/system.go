@@ -58,7 +58,7 @@ func NewSystemCommand(c common.Args) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "system",
 		Short: "Manage system.",
-		Long:  "Manage system, incluing printing the system deployment information in vela-system namespace and diagnosing the system's health.",
+		Long:  "Manage system, including printing the system deployment information in vela-system namespace and diagnosing the system's health.",
 		Example: "# Check all deployments information in all namespaces with label app.kubernetes.io/name=vela-core :\n" +
 			"> vela system info\n" +
 			"# Specify a deployment name with a namespace to check detail information:\n" +
@@ -81,7 +81,7 @@ func NewSystemInfoCommand(c common.Args) *cobra.Command {
 		Use:   "info",
 		Short: "Print the system deployment detail information in all namespaces with label app.kubernetes.io/name=vela-core.",
 		Long:  "Print the system deployment detail information in all namespaces with label app.kubernetes.io/name=vela-core.",
-		Args:  cobra.ExactValidArgs(0),
+		Args:  cobra.ExactArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Get deploymentName from flag
 			deployName, err := cmd.Flags().GetString(FlagSpecify)

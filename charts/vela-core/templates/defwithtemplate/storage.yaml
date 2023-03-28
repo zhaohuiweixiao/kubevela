@@ -54,7 +54,14 @@ spec:
         			emptyDir: medium: v.medium
         		}
         	},
+        	if parameter.hostPath != _|_ for v in parameter.hostPath {
+        		{
+        			name: "hostpath-" + v.name
+        			path: v.path
+        		}
+        	},
         ]
+
         volumeMountsList: [
         	if parameter.pvc != _|_ for v in parameter.pvc {
         		if v.volumeMode == "Filesystem" {
@@ -94,7 +101,14 @@ spec:
         			}
         		}
         	},
+        	if parameter.hostPath != _|_ for v in parameter.hostPath {
+        		{
+        			name:      "hostpath-" + v.name
+        			mountPath: v.mountPath
+        		}
+        	},
         ]
+
         envList: [
         	if parameter.configMap != _|_ for v in parameter.configMap if v.mountToEnv != _|_ {
         		{
@@ -133,6 +147,7 @@ spec:
         		}
         	},
         ]
+
         volumeDevicesList: *[
         			for v in parameter.pvc if v.volumeMode == "Block" {
         		{
@@ -144,6 +159,7 @@ spec:
         		}
         	},
         ] | []
+
         deDupVolumesArray: [
         	for val in [
         		for i, vi in volumesList {
@@ -156,6 +172,7 @@ spec:
         		val
         	},
         ]
+
         patch: spec: template: spec: {
         	// +patchKey=name
         	volumes: deDupVolumesArray
@@ -170,6 +187,7 @@ spec:
         	}, ...]
 
         }
+
         outputs: {
         	for v in parameter.pvc {
         		if v.mountOnly == false {
@@ -240,6 +258,7 @@ spec:
         	}
 
         }
+
         parameter: {
         	// +usage=Declare pvc type storage
         	pvc?: [...{
@@ -311,7 +330,7 @@ spec:
         			envName:   string
         			secretKey: string
         		}]
-        		mountPath?:  string
+        		mountPath:   string
         		subPath?:    string
         		defaultMode: *420 | int
         		readOnly:    *false | bool
@@ -330,6 +349,14 @@ spec:
         		mountPath: string
         		subPath?:  string
         		medium:    *"" | "Memory"
+        	}]
+
+        	// +usage=Declare host path type storage
+        	hostPath?: [...{
+        		name:      string
+        		path:      string
+        		mountPath: string
+        		type:      *"Directory" | "DirectoryOrCreate" | "FileOrCreate" | "File" | "Socket" | "CharDevice" | "BlockDevice"
         	}]
         }
 

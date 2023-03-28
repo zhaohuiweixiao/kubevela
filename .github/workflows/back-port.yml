@@ -4,19 +4,25 @@ on:
     types:
       - closed
 
+permissions:
+  contents: read
+
 jobs:
   # align with crossplane's choice https://github.com/crossplane/crossplane/blob/master/.github/workflows/backport.yml
   open-pr:
     runs-on: ubuntu-20.04
     if: github.event.pull_request.merged
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f
         with:
           fetch-depth: 0
 
       - name: Open Backport PR
-        uses: zeebe-io/backport-action@v0.0.9
+        uses: zeebe-io/backport-action@a759fd2d7d3314c9bb57d97a0350a12e878d3c7a
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           github_workspace: ${{ github.workspace }}

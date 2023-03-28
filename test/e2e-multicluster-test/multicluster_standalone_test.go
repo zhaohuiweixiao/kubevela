@@ -19,7 +19,7 @@ package e2e_multicluster_test
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -42,6 +42,7 @@ import (
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1beta1"
 	"github.com/oam-dev/kubevela/pkg/controller/core.oam.dev/v1alpha2/application"
 	"github.com/oam-dev/kubevela/pkg/oam"
+	"github.com/oam-dev/kubevela/pkg/workflow/operation"
 )
 
 var _ = Describe("Test multicluster standalone scenario", func() {
@@ -55,7 +56,7 @@ var _ = Describe("Test multicluster standalone scenario", func() {
 	var workerCtx context.Context
 
 	readFile := func(filename string) *unstructured.Unstructured {
-		bs, err := ioutil.ReadFile("./testdata/app/standalone/" + filename)
+		bs, err := os.ReadFile("./testdata/app/standalone/" + filename)
 		Expect(err).Should(Succeed())
 		un := &unstructured.Unstructured{}
 		Expect(yaml.Unmarshal(bs, un)).Should(Succeed())
@@ -65,7 +66,9 @@ var _ = Describe("Test multicluster standalone scenario", func() {
 
 	applyFile := func(filename string) {
 		un := readFile(filename)
-		Expect(k8sClient.Create(context.Background(), un)).Should(Succeed())
+		Eventually(func(g Gomega) {
+			g.Expect(k8sClient.Create(context.Background(), un)).Should(Succeed())
+		}).WithTimeout(10 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
 	}
 
 	BeforeEach(func() {
@@ -132,7 +135,9 @@ var _ = Describe("Test multicluster standalone scenario", func() {
 		Expect(k8sClient.Create(hubCtx, policy)).Should(Succeed())
 		waitObject(hubCtx, *policy)
 		app := readFile("app-with-publish-version.yaml")
-		Expect(k8sClient.Create(hubCtx, app)).Should(Succeed())
+		Eventually(func(g Gomega) {
+			g.Expect(k8sClient.Create(hubCtx, app)).Should(Succeed())
+		}).WithTimeout(10 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
 		appKey := client.ObjectKeyFromObject(app)
 
 		Eventually(func(g Gomega) {
@@ -147,13 +152,7 @@ var _ = Describe("Test multicluster standalone scenario", func() {
 		Eventually(func(g Gomega) {
 			_app := &v1beta1.Application{}
 			g.Expect(k8sClient.Get(hubCtx, appKey, _app)).Should(Succeed())
-			_app.Status.Workflow.Suspend = false
-			for i, step := range _app.Status.Workflow.Steps {
-				if step.Type == "suspend" {
-					_app.Status.Workflow.Steps[i].Phase = workflowv1alpha1.WorkflowStepPhaseSucceeded
-				}
-			}
-			g.Expect(k8sClient.Status().Update(hubCtx, _app)).Should(Succeed())
+			g.Expect(operation.ResumeWorkflow(hubCtx, k8sClient, _app, "")).Should(Succeed())
 		}, 15*time.Second).Should(Succeed())
 
 		// test application can run without external policies and workflow since they are recorded in the application revision
@@ -280,10 +279,14 @@ var _ = Describe("Test multicluster standalone scenario", func() {
 		))
 
 		By("Rollback application")
-		_, err = execCommand("workflow", "suspend", "busybox", "-n", namespace)
-		Expect(err).Should(Succeed())
-		_, err = execCommand("workflow", "rollback", "busybox", "-n", namespace)
-		Expect(err).Should(Succeed())
+		Eventually(func(g Gomega) {
+			_, err = execCommand("workflow", "suspend", "busybox", "-n", namespace)
+			g.Expect(err).Should(Succeed())
+		}).WithTimeout(10 * time.Second).Should(Succeed())
+		Eventually(func(g Gomega) {
+			_, err = execCommand("workflow", "rollback", "busybox", "-n", namespace)
+			g.Expect(err).Should(Succeed())
+		}).WithTimeout(10 * time.Second).Should(Succeed())
 
 		Eventually(func(g Gomega) {
 			g.Expect(k8sClient.Get(hubCtx, appKey, app)).Should(Succeed())
@@ -296,7 +299,7 @@ var _ = Describe("Test multicluster standalone scenario", func() {
 			revs, err := application.GetSortedAppRevisions(hubCtx, k8sClient, app.Name, namespace)
 			g.Expect(err).Should(Succeed())
 			g.Expect(len(revs)).Should(Equal(1))
-		})
+		}).WithTimeout(time.Minute).WithPolling(2 * time.Second).Should(Succeed())
 	})
 
 	It("Test large application parallel apply and delete", func() {

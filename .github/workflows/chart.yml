@@ -6,6 +6,9 @@ on:
       - "v*"
   workflow_dispatch: { }
 
+permissions:
+  contents: read
+
 env:
   BUCKET: ${{ secrets.OSS_BUCKET }}
   ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
@@ -28,18 +31,18 @@ jobs:
       VELA_ROLLOUT_HELM_CHART_NAME: vela-rollout
     runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f
       - name: Get git revision
         id: vars
         shell: bash
         run: |
           echo "git_revision=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
       - name: Install Helm
-        uses: azure/setup-helm@v3
+        uses: azure/setup-helm@5119fcb9089d432beecbf79bb2c7915207344b78
         with:
           version: v3.4.0
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@64ed1c7eab4cce3362f8c340dee64e5eaeef8f7c
         with:
           node-version: '14'
       - name: Generate helm doc

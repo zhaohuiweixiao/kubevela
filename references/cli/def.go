@@ -46,13 +46,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kubevela/workflow/pkg/cue/model/sets"
-	"github.com/kubevela/workflow/pkg/cue/packages"
 
 	commontype "github.com/oam-dev/kubevela/apis/core.oam.dev/common"
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1beta1"
 	"github.com/oam-dev/kubevela/apis/types"
 	"github.com/oam-dev/kubevela/pkg/cue/process"
 	pkgdef "github.com/oam-dev/kubevela/pkg/definition"
+	"github.com/oam-dev/kubevela/pkg/definition/gen_sdk"
 	"github.com/oam-dev/kubevela/pkg/utils"
 	addonutil "github.com/oam-dev/kubevela/pkg/utils/addon"
 	"github.com/oam-dev/kubevela/pkg/utils/common"
@@ -176,7 +176,7 @@ func NewDefinitionInitCommand(c common.Args) *cobra.Command {
 			"> vela def init vswitch --type component --provider alibaba --desc xxx --git https://github.com/kubevela-contrib/terraform-modules.git --path alibaba/vswitch\n" +
 			"# Initiate a Terraform ComponentDefinition named redis from local file for AWS.\n" +
 			"> vela def init redis --type component --provider aws --desc \"Terraform configuration for AWS Redis\" --local redis.tf",
-		Args: cobra.ExactValidArgs(1),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var defStr string
 			definitionType, err := cmd.Flags().GetString(FlagType)
@@ -304,7 +304,7 @@ func generateTerraformTypedComponentDefinition(cmd *cobra.Command, name, kind, p
 	}
 
 	switch provider {
-	case "aws", "azure", "alibaba", "tencent", "gcp", "baidu", "elastic", "ucloud", "vsphere":
+	case "aws", "azure", "alibaba", "tencent", "gcp", "baidu", "elastic", "ucloud", "vsphere", "huawei":
 		var terraform *commontype.Terraform
 
 		git, err := cmd.Flags().GetString(FlagGit)
@@ -449,7 +449,7 @@ func NewDefinitionGetCommand(c common.Args) *cobra.Command {
 			"> vela def get webservice\n" +
 			"# Command below will get the TraitDefinition of annotations in namespace vela-system\n" +
 			"> vela def get annotations --type trait --namespace vela-system",
-		Args: cobra.ExactValidArgs(1),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			definitionType, err := cmd.Flags().GetString(FlagType)
 			if err != nil {
@@ -562,7 +562,7 @@ func NewDefinitionListCommand(c common.Args) *cobra.Command {
 			"> vela def list\n" +
 			"# Command below will list all definitions in the vela-system namespace\n" +
 			"> vela def get annotations --type trait --namespace vela-system",
-		Args: cobra.ExactValidArgs(0),
+		Args: cobra.ExactArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			definitionType, err := cmd.Flags().GetString(FlagType)
 			if err != nil {
@@ -649,7 +649,7 @@ func NewDefinitionEditCommand(c common.Args) *cobra.Command {
 			"> vela def edit webservice\n" +
 			"# Command below will edit the TraitDefinition of ingress in vela-system namespace\n" +
 			"> vela def edit ingress --type trait --namespace vela-system",
-		Args: cobra.ExactValidArgs(1),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			definitionType, err := cmd.Flags().GetString(FlagType)
 			if err != nil {
@@ -749,7 +749,7 @@ func NewDefinitionRenderCommand(c common.Args) *cobra.Command {
 			"> vela def render my-webservice.cue -o my-webservice.yaml" +
 			"# Command below will render all cue format definitions in the ./defs/cue/ directory and save the YAML objects in ./defs/yaml/.\n" +
 			"> vela def render ./defs/cue/ -o ./defs/yaml/",
-		Args: cobra.ExactValidArgs(1),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			output, err := cmd.Flags().GetString(FlagOutput)
 			if err != nil {
@@ -862,7 +862,7 @@ func NewDefinitionApplyCommand(c common.Args, streams util.IOStreams) *cobra.Com
 			"> vela def apply https://my-host-to-def/my-trait.cue --dry-run" +
 			"# Apply a CUE from stdin \n" +
 			"> vela def apply -",
-		Args: cobra.ExactValidArgs(1),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			dryRun, err := cmd.Flags().GetBool(FlagDryRun)
@@ -975,7 +975,7 @@ func NewDefinitionDelCommand(c common.Args) *cobra.Command {
 		Long:  "Delete X-Definition in kubernetes cluster.",
 		Example: "# Command below will delete TraitDefinition of annotations in default namespace\n" +
 			"> vela def del annotations -t trait -n default",
-		Args: cobra.ExactValidArgs(1),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			definitionType, err := cmd.Flags().GetString(FlagType)
 			if err != nil {
@@ -1041,7 +1041,7 @@ func NewDefinitionValidateCommand(c common.Args) *cobra.Command {
 			"* Currently, this command only checks the cue format. This function is still working in progress and we will support more functional validation mechanism in the future.",
 		Example: "# Command below will validate the my-def.cue file.\n" +
 			"> vela def vet my-def.cue",
-		Args: cobra.ExactValidArgs(1),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cueBytes, err := os.ReadFile(args[0])
 			if err != nil {
@@ -1064,61 +1064,62 @@ func NewDefinitionValidateCommand(c common.Args) *cobra.Command {
 
 // NewDefinitionGenAPICommand create the `vela def gen-api` command to help user generate Go code from the definition
 func NewDefinitionGenAPICommand(c common.Args) *cobra.Command {
-	var (
-		skipPackageName bool
-		packageName     string
-		prefix          string
-	)
+	meta := gen_sdk.GenMeta{}
+	var languageArgs []string
 
 	cmd := &cobra.Command{
 		Use:   "gen-api DEFINITION.cue",
-		Short: "Generate Go struct of Parameter from X-Definition.",
-		Long: "Generate Go struct of Parameter from definition file.\n" +
+		Short: "Generate SDK from X-Definition.",
+		Long: "Generate SDK from X-definition file.\n" +
+			"* This command leverage openapi-generator project. Therefore demands \"docker\" exist in PATH\n" +
 			"* Currently, this function is still working in progress and not all formats of parameter in X-definition are supported yet.",
-		Example: "# Command below will generate the Go struct for the my-def.cue file.\n" +
-			"> vela def gen-api my-def.cue",
-		Args: cobra.ExactValidArgs(1),
+		Example: "# Generate SDK for golang with scaffold initialized\n" +
+			"> vela def gen-api --init --language go -f /path/to/def -o /path/to/sdk\n" +
+			"# Generate incremental definition files to existing sdk directory\n" +
+			"> vela def gen-api --language go -f /path/to/def -o /path/to/sdk\n" +
+			"# Generate definitions to a sub-module\n" +
+			"> vela def gen-api --language go -f /path/to/def -o /path/to/sdk --submodule --api-dir path/relative/to/output --language-args arg1=val1,arg2=val2\n",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cueBytes, err := os.ReadFile(args[0])
-			if err != nil {
-				return errors.Wrapf(err, "failed to read %s", args[0])
-			}
-			def := pkgdef.Definition{Unstructured: unstructured.Unstructured{}}
-			config, err := c.GetConfig()
+			err := meta.Init(c, languageArgs)
 			if err != nil {
 				return err
 			}
-			if err := def.FromCUEString(string(cueBytes), config); err != nil {
-				return errors.Wrapf(err, "failed to parse CUE")
-			}
-			templateString, _, err := unstructured.NestedString(def.Object, pkgdef.DefinitionTemplateKeys...)
+			err = meta.CreateScaffold()
 			if err != nil {
 				return err
 			}
-			pd, err := packages.NewPackageDiscover(config)
+			err = meta.PrepareGeneratorAndTemplate()
 			if err != nil {
 				return err
 			}
-			value, err := common.GetCUEParameterValue(templateString, pd)
+			err = meta.Run()
 			if err != nil {
 				return err
 			}
 
-			pkgdef.DefaultNamer.SetPrefix(prefix)
-			structs, err := pkgdef.GeneratorParameterStructs(value)
-			if err != nil {
-				return errors.Wrapf(err, "failed to generate Go code")
-			}
-
-			if !skipPackageName {
-				fmt.Printf("package %s\n\n", packageName)
-			}
-			pkgdef.PrintParamGosStruct(structs)
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&skipPackageName, "skip-package-name", false, "Skip package name in generated Go code.")
-	cmd.Flags().StringVar(&packageName, "package-name", "main", "Specify the package name in generated Go code.")
-	cmd.Flags().StringVar(&prefix, "prefix", "", "Specify the prefix of the generated Go struct.")
+
+	cmd.Flags().StringVarP(&meta.Output, "output", "o", "./apis", "Output directory path")
+	cmd.Flags().StringVar(&meta.APIDirectory, "api-dir", "", "API directory path to put definition API files, relative to output directory. Default value: go: pkg/apis")
+	cmd.Flags().BoolVar(&meta.IsSubModule, "submodule", false, "Whether the generated code is a submodule of the project. If set, the directory specified by `api-dir` will be treated as a submodule of the project")
+	cmd.Flags().StringVarP(&meta.Package, "package", "p", gen_sdk.PackagePlaceHolder, "Package name of generated code")
+	cmd.Flags().StringVarP(&meta.Lang, "language", "g", "go", "Language to generate code. Valid languages: go")
+	cmd.Flags().StringVarP(&meta.Template, "template", "t", "", "Template file path, if not specified, the default template will be used")
+	cmd.Flags().StringSliceVarP(&meta.File, "file", "f", nil, "File name of definitions, can be specified multiple times, or use comma to separate multiple files. If directory specified, all files found recursively in the directory will be used")
+	cmd.Flags().BoolVar(&meta.InitSDK, "init", false, "Init the whole SDK project, if not set, only the API file will be generated")
+	cmd.Flags().BoolVarP(&meta.Verbose, "verbose", "v", false, "Print verbose logs")
+	var langArgsDescStr string
+	for lang, args := range gen_sdk.LangArgsRegistry {
+		langArgsDescStr += lang + ": \n"
+		for key, arg := range args {
+			langArgsDescStr += fmt.Sprintf("\t%s: %s(default: %s)\n", key, arg.Name, arg.Default)
+		}
+	}
+	cmd.Flags().StringSliceVar(&languageArgs, "language-args", []string{},
+		fmt.Sprintf("language-specific arguments to pass to the go generator, available options: \n"+langArgsDescStr),
+	)
+
 	return cmd
 }

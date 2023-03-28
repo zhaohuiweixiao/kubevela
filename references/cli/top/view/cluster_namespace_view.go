@@ -24,7 +24,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/oam-dev/kubevela/references/cli/top/component"
-	"github.com/oam-dev/kubevela/references/cli/top/config"
 	"github.com/oam-dev/kubevela/references/cli/top/model"
 )
 
@@ -42,14 +41,14 @@ func (v *ClusterNamespaceView) Name() string {
 // Init the cluster namespace view
 func (v *ClusterNamespaceView) Init() {
 	v.CommonResourceView.Init()
-	v.SetTitle(fmt.Sprintf("[ %s ]", v.Name())).SetTitleColor(config.ResourceTableTitleColor)
+	v.SetTitle(fmt.Sprintf("[ %s ]", v.Name())).SetTitleColor(v.app.config.Theme.Table.Title.Color())
 	v.bindKeys()
 }
 
 // Start the cluster namespace view
 func (v *ClusterNamespaceView) Start() {
 	v.Clear()
-	v.Update()
+	v.Update(func() {})
 	v.AutoRefresh(v.Update)
 }
 
@@ -78,9 +77,10 @@ func (v *ClusterNamespaceView) Refresh(_ *tcell.EventKey) *tcell.EventKey {
 }
 
 // Update refresh the content of body of view
-func (v *ClusterNamespaceView) Update() {
+func (v *ClusterNamespaceView) Update(timeoutCancel func()) {
 	v.BuildHeader()
 	v.BuildBody()
+	timeoutCancel()
 }
 
 // BuildHeader render the header of table
@@ -104,14 +104,15 @@ func (v *ClusterNamespaceView) BuildBody() {
 // ColorizeStatusText colorize the status column text
 func (v *ClusterNamespaceView) ColorizeStatusText(rowNum int) {
 	for i := 0; i < rowNum; i++ {
-		status := v.Table.GetCell(i+1, 2).Text
+		status := v.Table.GetCell(i+1, 1).Text
+		highlightColor := v.app.config.Theme.Table.Body.String()
 		switch v1.NamespacePhase(status) {
 		case v1.NamespaceActive:
-			status = config.NamespaceActiveStatusColor + status
+			highlightColor = v.app.config.Theme.Status.Healthy.String()
 		case v1.NamespaceTerminating:
-			status = config.NamespaceTerminateStatusColor + status
+			highlightColor = v.app.config.Theme.Status.UnHealthy.String()
 		}
-		v.Table.GetCell(i+1, 2).SetText(status)
+		v.Table.GetCell(i+1, 1).SetText(fmt.Sprintf("[%s::]%s", highlightColor, status))
 	}
 }
 

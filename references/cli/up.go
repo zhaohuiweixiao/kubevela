@@ -22,10 +22,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/kubevela/pkg/controller/sharding"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/kubectl/pkg/util/i18n"
@@ -33,16 +32,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
-	apicommon "github.com/oam-dev/kubevela/apis/core.oam.dev/common"
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1beta1"
 	"github.com/oam-dev/kubevela/apis/types"
 	velacmd "github.com/oam-dev/kubevela/pkg/cmd"
 	cmdutil "github.com/oam-dev/kubevela/pkg/cmd/util"
-	"github.com/oam-dev/kubevela/pkg/component"
-	"github.com/oam-dev/kubevela/pkg/controller/core.oam.dev/v1alpha2/application"
-	"github.com/oam-dev/kubevela/pkg/controller/utils"
 	"github.com/oam-dev/kubevela/pkg/oam"
 	pkgUtils "github.com/oam-dev/kubevela/pkg/utils"
+	utilapp "github.com/oam-dev/kubevela/pkg/utils/app"
 	utilcommon "github.com/oam-dev/kubevela/pkg/utils/common"
 	"github.com/oam-dev/kubevela/pkg/utils/util"
 	"github.com/oam-dev/kubevela/references/common"
@@ -55,6 +51,7 @@ type UpCommandOptions struct {
 	File           string
 	PublishVersion string
 	RevisionName   string
+	ShardID        string
 	Debug          bool
 	Wait           bool
 	WaitTimeout    string
@@ -76,11 +73,14 @@ func (opt *UpCommandOptions) Validate() error {
 	if opt.AppName == "" && opt.File == "" {
 		return errors.Errorf("either app name or file should be set")
 	}
-	if opt.AppName != "" && opt.PublishVersion == "" {
+	if opt.AppName != "" && opt.PublishVersion == "" && opt.ShardID == "" {
 		return errors.Errorf("publish-version must be set if you want to force existing application to re-run")
 	}
 	if opt.AppName == "" && opt.RevisionName != "" {
 		return errors.Errorf("revision name must be used with application name")
+	}
+	if opt.RevisionName != "" && opt.ShardID != "" {
+		return errors.Errorf("revision name must be used with shard id")
 	}
 	return nil
 }
@@ -98,73 +98,10 @@ func (opt *UpCommandOptions) Run(f velacmd.Factory, cmd *cobra.Command) error {
 
 func (opt *UpCommandOptions) deployExistingAppUsingRevision(f velacmd.Factory, cmd *cobra.Command) error {
 	ctx, cli := cmd.Context(), f.Client()
-	app := &v1beta1.Application{}
-	if err := cli.Get(ctx, apitypes.NamespacedName{Name: opt.AppName, Namespace: opt.Namespace}, app); err != nil {
-		return err
-	}
-	if publishVersion := oam.GetPublishVersion(app); publishVersion == opt.PublishVersion {
-		return errors.Errorf("current PublishVersion is %s", publishVersion)
-	}
-	// check revision
-	revs, err := application.GetSortedAppRevisions(ctx, cli, opt.AppName, opt.Namespace)
+	_, _, err := utilapp.RollbackApplicationWithRevision(ctx, cli, opt.AppName, opt.Namespace, opt.RevisionName, opt.PublishVersion)
 	if err != nil {
 		return err
 	}
-	var matchedRev *v1beta1.ApplicationRevision
-	for _, rev := range revs {
-		if rev.Name == opt.RevisionName {
-			matchedRev = rev.DeepCopy()
-		}
-	}
-	if matchedRev == nil {
-		return errors.Errorf("failed to find revision %s matching application %s", opt.RevisionName, opt.AppName)
-	}
-	if app.Status.LatestRevision != nil && app.Status.LatestRevision.Name == opt.RevisionName {
-		return nil
-	}
-
-	// freeze the application
-	appKey := client.ObjectKeyFromObject(app)
-	controllerRequirement, err := utils.FreezeApplication(ctx, cli, app, func() {
-		app.Spec = matchedRev.Spec.Application.Spec
-		oam.SetPublishVersion(app, opt.PublishVersion)
-	})
-	if err != nil {
-		return errors.Wrapf(err, "failed to freeze application %s before update", appKey)
-	}
-
-	// create new revision based on the matched revision
-	revName, revisionNum := utils.GetAppNextRevision(app)
-	matchedRev.Name = revName
-	oam.SetPublishVersion(matchedRev, opt.PublishVersion)
-	obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(matchedRev)
-	if err != nil {
-		return err
-	}
-	un := &unstructured.Unstructured{Object: obj}
-	component.ClearRefObjectForDispatch(un)
-	if err = cli.Create(ctx, un); err != nil {
-		return errors.Wrapf(err, "failed to update application %s to create new revision %s", appKey, revName)
-	}
-
-	// update application status to point to the new revision
-	if err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		if err = cli.Get(ctx, appKey, app); err != nil {
-			return err
-		}
-		app.Status = apicommon.AppStatus{
-			LatestRevision: &apicommon.Revision{Name: revName, Revision: revisionNum, RevisionHash: matchedRev.GetLabels()[oam.LabelAppRevisionHash]},
-		}
-		return cli.Status().Update(ctx, app)
-	}); err != nil {
-		return errors.Wrapf(err, "failed to update application %s to use new revision %s", appKey, revName)
-	}
-
-	// unfreeze application
-	if err = utils.UnfreezeApplication(ctx, cli, app, nil, controllerRequirement); err != nil {
-		return errors.Wrapf(err, "failed to unfreeze application %s after update", appKey)
-	}
-
 	cmd.Printf("Application updated with new PublishVersion %s using revision %s\n", opt.PublishVersion, opt.RevisionName)
 	return nil
 }
@@ -176,18 +113,28 @@ func (opt *UpCommandOptions) deployExistingApp(f velacmd.Factory, cmd *cobra.Com
 		if err := cli.Get(ctx, apitypes.NamespacedName{Name: opt.AppName, Namespace: opt.Namespace}, app); err != nil {
 			return err
 		}
-		if publishVersion := oam.GetPublishVersion(app); publishVersion == opt.PublishVersion {
+		if publishVersion := oam.GetPublishVersion(app); publishVersion == opt.PublishVersion && opt.ShardID == "" {
 			return errors.Errorf("current PublishVersion is %s", publishVersion)
 		}
-		oam.SetPublishVersion(app, opt.PublishVersion)
+		if opt.PublishVersion != "" {
+			oam.SetPublishVersion(app, opt.PublishVersion)
+		}
 		if opt.Debug {
 			addDebugPolicy(app)
+		}
+		if err := reschedule(ctx, cli, app, opt.ShardID); err != nil {
+			return err
 		}
 		return cli.Update(ctx, app)
 	}); err != nil {
 		return err
 	}
-	cmd.Printf("Application updated with new PublishVersion %s\n", opt.PublishVersion)
+	if opt.PublishVersion != "" {
+		cmd.Printf("Application updated with new PublishVersion %s\n", opt.PublishVersion)
+	}
+	if opt.ShardID != "" {
+		cmd.Printf("Application scheduled to %s\n", opt.ShardID)
+	}
 	return nil
 }
 
@@ -201,6 +148,14 @@ func addDebugPolicy(app *v1beta1.Application) {
 		Name: "debug",
 		Type: "debug",
 	})
+}
+
+func reschedule(ctx context.Context, cli client.Client, app *v1beta1.Application, shardID string) error {
+	if shardID != "" {
+		sharding.SetScheduledShardID(app, shardID)
+		return utilapp.RescheduleAppRevAndRT(ctx, cli, app, shardID)
+	}
+	return nil
 }
 
 func (opt *UpCommandOptions) deployApplicationFromFile(f velacmd.Factory, cmd *cobra.Command) error {
@@ -237,10 +192,10 @@ func (opt *UpCommandOptions) deployApplicationFromFile(f velacmd.Factory, cmd *c
 		}
 		opt.AppName = app.Name
 		if opt.Debug {
-			app.Spec.Policies = append(app.Spec.Policies, v1beta1.AppPolicy{
-				Name: "debug",
-				Type: "debug",
-			})
+			addDebugPolicy(&app)
+		}
+		if err = reschedule(cmd.Context(), cli, &app, opt.ShardID); err != nil {
+			return err
 		}
 		err = common.ApplyApplication(app, ioStream, cli)
 		if err != nil {
@@ -275,6 +230,9 @@ var (
 
 		# Deploy an application using existing revision
 		vela up example-app -n example-ns --publish-version beta --revision example-app-v2
+
+		# Deploy an application with specified shard-id assigned. This can be used to manually re-schedule application.
+		vela up example-app --shard-id shard-1
 
 		# Deploy an application from stdin
 		cat <<EOF | vela up -f -
@@ -341,6 +299,7 @@ func NewUpCommand(f velacmd.Factory, order string, c utilcommon.Args, ioStream u
 	cmd.Flags().StringVarP(&o.File, "file", "f", o.File, "The file path for appfile or application. It could be a remote url.")
 	cmd.Flags().StringVarP(&o.PublishVersion, "publish-version", "v", o.PublishVersion, "The publish version for deploying application.")
 	cmd.Flags().StringVarP(&o.RevisionName, "revision", "r", o.RevisionName, "The revision to use for deploying the application, if empty, the current application configuration will be used.")
+	cmd.Flags().StringVarP(&o.ShardID, "shard-id", "s", o.ShardID, "The shard id assigned to the application. If empty, it will not be used.")
 	cmd.Flags().BoolVarP(&o.Debug, "debug", "", o.Debug, "Enable debug mode for application")
 	cmd.Flags().BoolVarP(&o.Wait, "wait", "w", o.Wait, "Wait app to be healthy until timout, if no timeout specified, the default duration is 300s.")
 	cmd.Flags().StringVarP(&o.WaitTimeout, "timeout", "", o.WaitTimeout, "Set the timout for wait app to be healthy, if not specified, the default duration is 300s.")

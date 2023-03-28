@@ -4,9 +4,8 @@ import (
 
 "export2config": {
 	type: "workflow-step"
-	annotations: {}
-	labels: {
-		"ui-hidden": "true"
+	annotations: {
+		"category": "Resource Management"
 	}
 	description: "Export data to specified Kubernetes ConfigMap in your workflow."
 }

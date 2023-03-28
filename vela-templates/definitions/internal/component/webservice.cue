@@ -47,7 +47,13 @@ webservice: {
 						observedGeneration: context.output.status.observedGeneration
 					}
 				}
-				isHealth: (context.output.spec.replicas == ready.readyReplicas) && (context.output.spec.replicas == ready.updatedReplicas) && (context.output.spec.replicas == ready.replicas) && (ready.observedGeneration == context.output.metadata.generation || ready.observedGeneration > context.output.metadata.generation)
+				_isHealth: (context.output.spec.replicas == ready.readyReplicas) && (context.output.spec.replicas == ready.updatedReplicas) && (context.output.spec.replicas == ready.replicas) && (ready.observedGeneration == context.output.metadata.generation || ready.observedGeneration > context.output.metadata.generation)
+				isHealth: *_isHealth | bool
+				if context.output.metadata.annotations != _|_ {
+					if context.output.metadata.annotations["app.oam.dev/disable-health-check"] != _|_ {
+						isHealth: true
+					}
+				}
 				"""#
 		}
 	}
@@ -227,6 +233,10 @@ template: {
 
 						if parameter["cmd"] != _|_ {
 							command: parameter.cmd
+						}
+
+						if parameter["args"] != _|_ {
+							args: parameter.args
 						}
 
 						if parameter["env"] != _|_ {
@@ -409,6 +419,9 @@ template: {
 
 		// +usage=Commands to run in the container
 		cmd?: [...string]
+
+		// +usage=Arguments to the entrypoint
+		args?: [...string]
 
 		// +usage=Define arguments by using environment variables
 		env?: [...{

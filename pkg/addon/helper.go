@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/discovery"
@@ -51,17 +52,16 @@ const (
 )
 
 // EnableAddon will enable addon with dependency check, source is where addon from.
-func EnableAddon(ctx context.Context, name string, version string, cli client.Client, discoveryClient *discovery.DiscoveryClient, apply apply.Applicator, config *rest.Config, r Registry, args map[string]interface{}, cache *Cache, registries []Registry, opts ...InstallOption) error {
+func EnableAddon(ctx context.Context, name string, version string, cli client.Client, discoveryClient *discovery.DiscoveryClient, apply apply.Applicator, config *rest.Config, r Registry, args map[string]interface{}, cache *Cache, registries []Registry, opts ...InstallOption) (string, error) {
 	h := NewAddonInstaller(ctx, cli, discoveryClient, apply, config, &r, args, cache, registries, opts...)
 	pkg, err := h.loadInstallPackage(name, version)
 	if err != nil {
-		return err
+		return "", err
 	}
-	err = h.enableAddon(pkg)
-	if err != nil {
-		return err
+	if err := validateAddonPackage(pkg); err != nil {
+		return "", errors.Wrap(err, fmt.Sprintf("failed to enable addon: %s", name))
 	}
-	return nil
+	return h.enableAddon(pkg)
 }
 
 // DisableAddon will disable addon from cluster.
@@ -79,7 +79,7 @@ func DisableAddon(ctx context.Context, cli client.Client, name string, config *r
 			return err
 		}
 		if len(usingAddonApp) != 0 {
-			return fmt.Errorf(fmt.Sprintf("%s please delete them first", usingAppsInfo(usingAddonApp)))
+			return errors.New(appsDependsOnAddonErrInfo(usingAddonApp))
 		}
 	}
 
@@ -90,39 +90,37 @@ func DisableAddon(ctx context.Context, cli client.Client, name string, config *r
 }
 
 // EnableAddonByLocalDir enable an addon from local dir
-func EnableAddonByLocalDir(ctx context.Context, name string, dir string, cli client.Client, dc *discovery.DiscoveryClient, applicator apply.Applicator, config *rest.Config, args map[string]interface{}, opts ...InstallOption) error {
+func EnableAddonByLocalDir(ctx context.Context, name string, dir string, cli client.Client, dc *discovery.DiscoveryClient, applicator apply.Applicator, config *rest.Config, args map[string]interface{}, opts ...InstallOption) (string, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
-		return err
+		return "", err
 	}
 	r := localReader{dir: absDir, name: name}
 	metas, err := r.ListAddonMeta()
 	if err != nil {
-		return err
+		return "", err
 	}
 	meta := metas[r.name]
 	UIData, err := GetUIDataFromReader(r, &meta, UIMetaOptions)
 	if err != nil {
-		return err
+		return "", err
 	}
 	pkg, err := GetInstallPackageFromReader(r, &meta, UIData)
 	if err != nil {
-		return err
+		return "", err
+	}
+	if err := validateAddonPackage(pkg); err != nil {
+		return "", errors.Wrap(err, fmt.Sprintf("failed to enable addon by local dir: %s", dir))
 	}
 	h := NewAddonInstaller(ctx, cli, dc, applicator, config, &Registry{Name: LocalAddonRegistryName}, args, nil, nil, opts...)
 	needEnableAddonNames, err := h.checkDependency(pkg)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if len(needEnableAddonNames) > 0 {
-		return fmt.Errorf("you must first enable dependencies: %v", needEnableAddonNames)
+		return "", fmt.Errorf("you must first enable dependencies: %v", needEnableAddonNames)
 	}
-
-	err = h.enableAddon(pkg)
-	if err != nil {
-		return err
-	}
-	return nil
+	return h.enableAddon(pkg)
 }
 
 // GetAddonStatus is general func for cli and apiServer get addon status
@@ -187,8 +185,8 @@ func GetAddonStatus(ctx context.Context, cli client.Client, name string) (Status
 	}
 }
 
-// FindWholeAddonPackagesFromRegistry find addons' WholeInstallPackage from registries, empty registryName indicates matching all
-func FindWholeAddonPackagesFromRegistry(ctx context.Context, k8sClient client.Client, addonNames []string, registryNames []string) ([]*WholeAddonPackage, error) {
+// FindAddonPackagesDetailFromRegistry find addons' WholeInstallPackage from registries, empty registryName indicates matching all
+func FindAddonPackagesDetailFromRegistry(ctx context.Context, k8sClient client.Client, addonNames []string, registryNames []string) ([]*WholeAddonPackage, error) {
 	var addons []*WholeAddonPackage
 	var registries []Registry
 

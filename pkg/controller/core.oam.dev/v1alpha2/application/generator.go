@@ -25,7 +25,9 @@ import (
 	pkgmulticluster "github.com/kubevela/pkg/multicluster"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 
+	configprovider "github.com/oam-dev/kubevela/pkg/config/provider"
 	"github.com/oam-dev/kubevela/pkg/features"
+	"github.com/oam-dev/kubevela/pkg/utils/apply"
 
 	"github.com/crossplane/crossplane-runtime/pkg/meta"
 	"github.com/pkg/errors"
@@ -83,34 +85,43 @@ var (
 func (h *AppHandler) GenerateApplicationSteps(ctx monitorContext.Context,
 	app *v1beta1.Application,
 	appParser *appfile.Parser,
-	af *appfile.Appfile,
-	appRev *v1beta1.ApplicationRevision) (*wfTypes.WorkflowInstance, []wfTypes.TaskRunner, error) {
+	af *appfile.Appfile) (*wfTypes.WorkflowInstance, []wfTypes.TaskRunner, error) {
 
+	appRev := h.currentAppRev
+	t := time.Now()
+	defer func() {
+		metrics.AppReconcileStageDurationHistogram.WithLabelValues("generate-app-steps").Observe(time.Since(t).Seconds())
+	}()
+
+	appLabels := map[string]string{
+		oam.LabelAppName:      app.Name,
+		oam.LabelAppNamespace: app.Namespace,
+	}
 	handlerProviders := providers.NewProviders()
-	kube.Install(handlerProviders, h.r.Client,
-		map[string]string{
-			oam.LabelAppName:      app.Name,
-			oam.LabelAppNamespace: app.Namespace,
-		}, &kube.Handlers{
-			Apply:  h.Dispatch,
-			Delete: h.Delete,
-		})
+	kube.Install(handlerProviders, h.r.Client, appLabels, &kube.Handlers{
+		Apply:  h.Dispatch,
+		Delete: h.Delete,
+	})
+	configprovider.Install(handlerProviders, h.r.Client, func(ctx context.Context, resources []*unstructured.Unstructured, applyOptions []apply.ApplyOption) error {
+		for _, res := range resources {
+			res.SetLabels(util.MergeMapOverrideWithDst(res.GetLabels(), appLabels))
+		}
+		return h.resourceKeeper.Dispatch(ctx, resources, applyOptions)
+	})
 	oamProvider.Install(handlerProviders, app, af, h.r.Client, h.applyComponentFunc(
 		appParser, appRev, af), h.renderComponentFunc(appParser, appRev, af))
 	pCtx := velaprocess.NewContext(generateContextDataFromApp(app, appRev.Name))
+	renderer := func(ctx context.Context, comp common.ApplicationComponent) (*appfile.Workload, error) {
+		return appParser.ParseWorkloadFromRevisionAndClient(ctx, comp, appRev)
+	}
 	multiclusterProvider.Install(handlerProviders, h.r.Client, app, af,
 		h.applyComponentFunc(appParser, appRev, af),
 		h.checkComponentHealth(appParser, appRev, af),
-		func(_ context.Context, comp common.ApplicationComponent) (*appfile.Workload, error) {
-			return appParser.ParseWorkloadFromRevision(comp, appRev)
-		},
-	)
-	terraformProvider.Install(handlerProviders, app, func(_ context.Context, comp common.ApplicationComponent) (*appfile.Workload, error) {
-		return appParser.ParseWorkloadFromRevision(comp, appRev)
-	})
+		renderer)
+	terraformProvider.Install(handlerProviders, app, renderer)
 	query.Install(handlerProviders, h.r.Client, nil)
 
-	instance := generateWorkflowInstance(af, app, appRev.Name)
+	instance := generateWorkflowInstance(af, app)
 	executor.InitializeWorkflowInstance(instance)
 	runners, err := generator.GenerateRunners(ctx, instance, wfTypes.StepGeneratorOptions{
 		Providers:       handlerProviders,
@@ -135,7 +146,7 @@ func (h *AppHandler) GenerateApplicationSteps(ctx monitorContext.Context,
 	return instance, runners, nil
 }
 
-// needRestart check if application workflow need restart and return the desired
+// CheckWorkflowRestart check if application workflow need restart and return the desired
 // rev to be set in status
 // 1. If workflow status is empty, it means no previous running record, the
 // workflow will restart (cold start)
@@ -144,8 +155,8 @@ func (h *AppHandler) GenerateApplicationSteps(ctx monitorContext.Context,
 // 3. If workflow status is not empty, the desired rev will be the
 // ApplicationRevision name. For backward compatibility, the legacy style
 // <rev>:<hash> will be recognized and reduced into <rev>
-func needRestart(app *v1beta1.Application, revName string) (string, bool) {
-	desiredRev, currentRev := revName, ""
+func (h *AppHandler) CheckWorkflowRestart(ctx monitorContext.Context, app *v1beta1.Application) {
+	desiredRev, currentRev := h.currentAppRev.Name, ""
 	if app.Status.Workflow != nil {
 		currentRev = app.Status.Workflow.AppRevision
 	}
@@ -158,10 +169,40 @@ func needRestart(app *v1beta1.Application, revName string) (string, bool) {
 			currentRev = currentRev[:idx]
 		}
 	}
-	return desiredRev, currentRev == "" || desiredRev != currentRev
+	if currentRev != "" && desiredRev == currentRev {
+		return
+	}
+	// record in revision
+	if h.latestAppRev != nil && h.latestAppRev.Status.Workflow == nil && app.Status.Workflow != nil {
+		app.Status.Workflow.Terminated = true
+		app.Status.Workflow.Finished = true
+		if app.Status.Workflow.EndTime.IsZero() {
+			app.Status.Workflow.EndTime = metav1.Now()
+		}
+		h.UpdateApplicationRevisionStatus(ctx, h.latestAppRev, app.Status.Workflow)
+	}
+
+	// clean recorded resources info.
+	app.Status.Services = nil
+	app.Status.AppliedResources = nil
+
+	// clean conditions after render
+	var reservedConditions []condition.Condition
+	for i, cond := range app.Status.Conditions {
+		condTpy, err := common.ParseApplicationConditionType(string(cond.Type))
+		if err == nil {
+			if condTpy <= common.RenderCondition {
+				reservedConditions = append(reservedConditions, app.Status.Conditions[i])
+			}
+		}
+	}
+	app.Status.Conditions = reservedConditions
+	app.Status.Workflow = &common.WorkflowStatus{
+		AppRevision: desiredRev,
+	}
 }
 
-func generateWorkflowInstance(af *appfile.Appfile, app *v1beta1.Application, appRev string) *wfTypes.WorkflowInstance {
+func generateWorkflowInstance(af *appfile.Appfile, app *v1beta1.Application) *wfTypes.WorkflowInstance {
 	instance := &wfTypes.WorkflowInstance{
 		WorkflowMeta: wfTypes.WorkflowMeta{
 			Name:        af.Name,
@@ -182,27 +223,6 @@ func generateWorkflowInstance(af *appfile.Appfile, app *v1beta1.Application, app
 		Debug: af.Debug,
 		Steps: af.WorkflowSteps,
 		Mode:  af.WorkflowMode,
-	}
-	if desiredRev, nr := needRestart(app, appRev); nr {
-		// clean recorded resources info.
-		app.Status.Services = nil
-		app.Status.AppliedResources = nil
-
-		// clean conditions after render
-		var reservedConditions []condition.Condition
-		for i, cond := range app.Status.Conditions {
-			condTpy, err := common.ParseApplicationConditionType(string(cond.Type))
-			if err == nil {
-				if condTpy <= common.RenderCondition {
-					reservedConditions = append(reservedConditions, app.Status.Conditions[i])
-				}
-			}
-		}
-		app.Status.Conditions = reservedConditions
-		app.Status.Workflow = &common.WorkflowStatus{
-			AppRevision: desiredRev,
-		}
-		return instance
 	}
 	status := app.Status.Workflow
 	instance.Status = workflowv1alpha1.WorkflowRunStatus{
@@ -307,20 +327,20 @@ func (h *AppHandler) renderComponentFunc(appParser *appfile.Parser, appRev *v1be
 }
 
 func (h *AppHandler) checkComponentHealth(appParser *appfile.Parser, appRev *v1beta1.ApplicationRevision, af *appfile.Appfile) oamProvider.ComponentHealthCheck {
-	return func(baseCtx context.Context, comp common.ApplicationComponent, patcher *value.Value, clusterName string, overrideNamespace string, env string) (bool, error) {
+	return func(baseCtx context.Context, comp common.ApplicationComponent, patcher *value.Value, clusterName string, overrideNamespace string, env string) (bool, *unstructured.Unstructured, []*unstructured.Unstructured, error) {
 		ctx := multicluster.ContextWithClusterName(baseCtx, clusterName)
 		ctx = contextWithComponentNamespace(ctx, overrideNamespace)
 		ctx = contextWithReplicaKey(ctx, comp.ReplicaKey)
 
 		wl, manifest, err := h.prepareWorkloadAndManifests(ctx, appParser, comp, appRev, patcher, af)
 		if err != nil {
-			return false, err
+			return false, nil, nil, err
 		}
 		wl.Ctx.SetCtx(auth.ContextWithUserInfo(ctx, h.app))
 
 		readyWorkload, readyTraits, err := renderComponentsAndTraits(h.r.Client, manifest, appRev, clusterName, overrideNamespace, env)
 		if err != nil {
-			return false, err
+			return false, nil, nil, err
 		}
 		checkSkipApplyWorkload(wl)
 
@@ -329,11 +349,15 @@ func (h *AppHandler) checkComponentHealth(appParser *appfile.Parser, appRev *v1b
 			dispatchResources = append([]*unstructured.Unstructured{readyWorkload}, readyTraits...)
 		}
 		if !h.resourceKeeper.ContainsResources(dispatchResources) {
-			return false, err
+			return false, nil, nil, err
 		}
 
-		_, isHealth, err := h.collectHealthStatus(auth.ContextWithUserInfo(ctx, h.app), wl, appRev, overrideNamespace, false)
-		return isHealth, err
+		_, output, outputs, isHealth, err := h.collectHealthStatus(auth.ContextWithUserInfo(ctx, h.app), wl, appRev, overrideNamespace, false)
+		if err != nil {
+			return false, nil, nil, err
+		}
+
+		return isHealth, output, outputs, err
 	}
 }
 
@@ -385,7 +409,7 @@ func (h *AppHandler) applyComponentFunc(appParser *appfile.Parser, appRev *v1bet
 			if err := h.Dispatch(ctx, clusterName, common.WorkflowResourceCreator, dispatchResources...); err != nil {
 				return nil, nil, false, errors.WithMessage(err, "Dispatch")
 			}
-			_, isHealth, err = h.collectHealthStatus(ctx, wl, appRev, overrideNamespace, false)
+			_, _, _, isHealth, err = h.collectHealthStatus(ctx, wl, appRev, overrideNamespace, false)
 			if err != nil {
 				return nil, nil, false, errors.WithMessage(err, "CollectHealthStatus")
 			}
@@ -420,7 +444,7 @@ func (h *AppHandler) prepareWorkloadAndManifests(ctx context.Context,
 	appRev *v1beta1.ApplicationRevision,
 	patcher *value.Value,
 	af *appfile.Appfile) (*appfile.Workload, *types.ComponentManifest, error) {
-	wl, err := appParser.ParseWorkloadFromRevision(comp, appRev)
+	wl, err := appParser.ParseWorkloadFromRevisionAndClient(ctx, comp, appRev)
 	if err != nil {
 		return nil, nil, errors.WithMessage(err, "ParseWorkload")
 	}

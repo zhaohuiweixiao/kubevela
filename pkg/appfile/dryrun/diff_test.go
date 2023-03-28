@@ -19,12 +19,10 @@ package dryrun
 import (
 	"bytes"
 	"context"
-	"io/ioutil"
+	"os"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/yaml"
@@ -159,7 +157,7 @@ var _ = Describe("Test Live-Diff", func() {
 			Parser: appfile.NewApplicationParser(k8sClient, dm, pd),
 		}
 		applyFile := func(filename string, ns string) {
-			bs, err := ioutil.ReadFile("./testdata/" + filename)
+			bs, err := os.ReadFile("./testdata/" + filename)
 			Expect(err).Should(Succeed())
 			un := &unstructured.Unstructured{}
 			Expect(yaml.Unmarshal(bs, un)).Should(Succeed())
@@ -167,7 +165,6 @@ var _ = Describe("Test Live-Diff", func() {
 			Expect(k8sClient.Create(context.Background(), un)).Should(Succeed())
 		}
 		ctx := context.Background()
-		Expect(k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "vela-system"}})).Should(Succeed())
 		applyFile("diff-input-app-with-externals.yaml", "default")
 		applyFile("diff-apprevision.yaml", "default")
 		app := &v1beta1.Application{}
@@ -190,7 +187,6 @@ var _ = Describe("Test Live-Diff", func() {
 		Expect(runDiff()).Should(ContainSubstring("\"myworker\" not found"))
 		applyFile("td-myingress.yaml", "vela-system")
 		applyFile("cd-myworker.yaml", "vela-system")
-		applyFile("wd-deploy.yaml", "vela-system")
 		applyFile("wd-ref-objects.yaml", "vela-system")
 		Expect(runDiff()).Should(ContainSubstring("\"deploy-livediff-demo\" not found"))
 		applyFile("external-workflow.yaml", "default")

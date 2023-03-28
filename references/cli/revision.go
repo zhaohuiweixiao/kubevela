@@ -22,9 +22,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/yaml"
 
-	"github.com/oam-dev/kubevela/pkg/apiserver/utils/log"
 	"github.com/oam-dev/kubevela/pkg/velaql"
 
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1beta1"
@@ -63,7 +63,7 @@ func NewRevisionListCommand(c common.Args) *cobra.Command {
 		Aliases: []string{"ls"},
 		Short:   "list application revisions",
 		Long:    "list Kubevela application revisions",
-		Args:    cobra.ExactValidArgs(1),
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			namespace, err := GetFlagNamespaceOrEnv(cmd, c)
 			if err != nil {
@@ -101,7 +101,7 @@ func NewRevisionGetCommand(c common.Args) *cobra.Command {
 		Aliases: []string{"get"},
 		Short:   "get specific revision of application",
 		Long:    "get specific revision of application",
-		Args:    cobra.ExactValidArgs(1),
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			namespace, err := GetFlagNamespaceOrEnv(cmd, c)
 			if err != nil {
@@ -149,13 +149,13 @@ func getRevision(ctx context.Context, c common.Args, format string, out io.Write
 	}
 	query, err := velaql.ParseVelaQL(MakeVelaQL(revisionView, params, "status"))
 	if err != nil {
-		log.Logger.Errorf("fail to parse ql string %s", err.Error())
+		klog.Errorf("fail to parse ql string %s", err.Error())
 		return fmt.Errorf(fmt.Sprintf("Unable to get application revision %s in namespace %s", name, namespace))
 	}
 
 	queryValue, err := velaql.NewViewHandler(cli, kubeConfig, dm, pd).QueryView(ctx, query)
 	if err != nil {
-		log.Logger.Errorf("fail to query the view %s", err.Error())
+		klog.Errorf("fail to query the view %s", err.Error())
 		return fmt.Errorf(fmt.Sprintf("Unable to get application revision %s in namespace %s", name, namespace))
 	}
 

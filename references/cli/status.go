@@ -24,6 +24,8 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/client-go/rest"
+
 	"github.com/fatih/color"
 	"github.com/olekukonko/tablewriter"
 	"github.com/pkg/errors"
@@ -53,6 +55,7 @@ import (
 	cmdutil "github.com/oam-dev/kubevela/pkg/utils/util"
 	types2 "github.com/oam-dev/kubevela/pkg/velaql/providers/query/types"
 	"github.com/oam-dev/kubevela/references/appfile"
+	references "github.com/oam-dev/kubevela/references/common"
 )
 
 // HealthStatus represents health status strings.
@@ -118,7 +121,10 @@ func NewAppStatusCommand(c common.Args, order string, ioStreams cmdutil.IOStream
   vela status first-vela-app -o yaml
 
   # Get raw Application status using jsonpath
-  vela status first-vela-app -o jsonpath='{.status}'`,
+  vela status first-vela-app -o jsonpath='{.status}'
+  
+  # Get Application metrics status
+  vela status first-vela-app --metrics`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// check args
 			argsLength := len(args)
@@ -143,8 +149,18 @@ func NewAppStatusCommand(c common.Args, order string, ioStreams cmdutil.IOStream
 				}
 				return printAppPods(appName, namespace, f, c)
 			}
+
+			newClient, err := c.GetClient()
+			if err != nil {
+				return err
+			}
+
 			showEndpoints, err := cmd.Flags().GetBool("endpoint")
 			if showEndpoints && err == nil {
+				_, err := loadRemoteApplication(newClient, namespace, appName)
+				if err != nil {
+					return err
+				}
 				component, _ := cmd.Flags().GetString("component")
 				cluster, _ := cmd.Flags().GetString("cluster")
 				f := Filter{
@@ -153,10 +169,16 @@ func NewAppStatusCommand(c common.Args, order string, ioStreams cmdutil.IOStream
 				}
 				return printAppEndpoints(ctx, appName, namespace, f, c, false)
 			}
-			newClient, err := c.GetClient()
+
+			restConf, err := c.GetConfig()
 			if err != nil {
 				return err
 			}
+
+			if showMetrics, err := cmd.Flags().GetBool("metrics"); showMetrics && err == nil {
+				return printMetrics(newClient, restConf, appName, namespace)
+			}
+
 			if outputFormat != "" {
 				return printRawApplication(context.Background(), c, outputFormat, cmd.OutOrStdout(), namespace, appName)
 			}
@@ -176,6 +198,7 @@ func NewAppStatusCommand(c common.Args, order string, ioStreams cmdutil.IOStream
 	cmd.Flags().BoolVarP(&detail, "detail", "d", false, "display more details in the application like input/output data in context. Note that if you want to show the realtime details of application resources, please use it with --tree")
 	cmd.Flags().StringP("detail-format", "", "inline", "the format for displaying details, must be used with --detail. Can be one of inline, wide, list, table, raw.")
 	cmd.Flags().StringVarP(&outputFormat, "output", "o", "", "raw Application output format. One of: (json, yaml, jsonpath)")
+	cmd.Flags().BoolP("metrics", "m", false, "show resource quota and consumption metrics of the application")
 	addNamespaceAndEnvArg(cmd)
 	return cmd
 }
@@ -548,4 +571,38 @@ func printRawApplication(ctx context.Context, c common.Args, format string, out 
 
 	_, err = out.Write([]byte(str))
 	return err
+}
+
+// printMetrics prints the resource num and resource metrics of an application
+func printMetrics(c client.Client, conf *rest.Config, appName, appNamespace string) error {
+	app := new(v1beta1.Application)
+	err := c.Get(context.Background(), client.ObjectKey{
+		Name:      appName,
+		Namespace: appNamespace,
+	}, app)
+	if err != nil {
+		return err
+	}
+	metrics, err := references.GetApplicationMetrics(c, conf, app)
+	if err != nil {
+		return err
+	}
+	fmt.Println()
+	fmt.Printf("Kubernetes Resources created:\n")
+	fmt.Printf("    * Number of Pods:             %d\n", metrics.ResourceNum.Pod)
+	fmt.Printf("    * Number of Containers:       %d\n", metrics.ResourceNum.Container)
+	fmt.Printf("    * Number of Managed Resource: %d\n", metrics.ResourceNum.Subresource)
+	fmt.Printf("    * Number of Nodes:            %d\n", metrics.ResourceNum.Node)
+	fmt.Printf("    * Number of Clusters:         %d\n", metrics.ResourceNum.Cluster)
+	fmt.Println()
+	fmt.Printf("Underlying Physical Resoures consumed:\n")
+	fmt.Printf("    * Total   CPU(cores):         %d m\n", metrics.Metrics.CPUUsage)
+	fmt.Printf("    * Limit   CPU(cores):         %d m\n", metrics.Metrics.CPULimit)
+	fmt.Printf("    * Request CPU(cores):         %d m\n", metrics.Metrics.CPURequest)
+	fmt.Printf("    * Total   Memory(bytes):      %d Mi\n", metrics.Metrics.MemoryUsage/(1024*1024))
+	fmt.Printf("    * Limit   Memory(bytes):      %d Mi\n", metrics.Metrics.MemoryLimit/(1024*1024))
+	fmt.Printf("    * Request Memory(bytes):      %d Mi\n", metrics.Metrics.MemoryRequest/(1024*1024))
+	fmt.Printf("    * Total   Storage(bytes):     %d Gi\n", metrics.Metrics.Storage/(1024*1024*1024))
+	fmt.Println()
+	return nil
 }

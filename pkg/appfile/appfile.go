@@ -75,6 +75,8 @@ const (
 	ProviderRefKey = "providerRef"
 	// ForceDeleteKey is used to force delete Configuration
 	ForceDeleteKey = "forceDelete"
+	// GitCredentialsSecretReferenceKey is the reference to a secret with git ssh private key & known hosts
+	GitCredentialsSecretReferenceKey = "gitCredentialsSecretReference"
 )
 
 // Workload is component
@@ -99,22 +101,35 @@ func (wl *Workload) EvalContext(ctx process.Context) error {
 	return wl.engine.Complete(ctx, wl.FullTemplate.TemplateStr, wl.Params)
 }
 
+// GetTemplateContext get workload template context, it will be used to eval status and health
+func (wl *Workload) GetTemplateContext(ctx process.Context, client client.Client, accessor util.NamespaceAccessor) (map[string]interface{}, error) {
+	// if the standard workload is managed by trait, just return empty context
+	if wl.SkipApplyWorkload {
+		return nil, nil
+	}
+	templateContext, err := wl.engine.GetTemplateContext(ctx, client, accessor)
+	if templateContext != nil {
+		templateContext[velaprocess.ParameterFieldName] = wl.Params
+	}
+	return templateContext, err
+}
+
 // EvalStatus eval workload status
-func (wl *Workload) EvalStatus(ctx process.Context, cli client.Client, accessor util.NamespaceAccessor) (string, error) {
-	// if the  standard workload is managed by trait always return empty message
+func (wl *Workload) EvalStatus(templateContext map[string]interface{}) (string, error) {
+	// if the standard workload is managed by trait always return empty message
 	if wl.SkipApplyWorkload {
 		return "", nil
 	}
-	return wl.engine.Status(ctx, cli, accessor, wl.FullTemplate.CustomStatus, wl.Params)
+	return wl.engine.Status(templateContext, wl.FullTemplate.CustomStatus, wl.Params)
 }
 
 // EvalHealth eval workload health check
-func (wl *Workload) EvalHealth(ctx process.Context, client client.Client, accessor util.NamespaceAccessor) (bool, error) {
+func (wl *Workload) EvalHealth(templateContext map[string]interface{}) (bool, error) {
 	// if health of template is not set or standard workload is managed by trait always return true
 	if wl.SkipApplyWorkload {
 		return true, nil
 	}
-	return wl.engine.HealthCheck(ctx, client, accessor, wl.FullTemplate.Health, wl.Params)
+	return wl.engine.HealthCheck(templateContext, wl.FullTemplate.Health, wl.Params)
 }
 
 // Scope defines the scope of workload
@@ -147,14 +162,23 @@ func (trait *Trait) EvalContext(ctx process.Context) error {
 	return trait.engine.Complete(ctx, trait.Template, trait.Params)
 }
 
+// GetTemplateContext get trait template context, it will be used to eval status and health
+func (trait *Trait) GetTemplateContext(ctx process.Context, client client.Client, accessor util.NamespaceAccessor) (map[string]interface{}, error) {
+	templateContext, err := trait.engine.GetTemplateContext(ctx, client, accessor)
+	if templateContext != nil {
+		templateContext[velaprocess.ParameterFieldName] = trait.Params
+	}
+	return templateContext, err
+}
+
 // EvalStatus eval trait status
-func (trait *Trait) EvalStatus(ctx process.Context, cli client.Client, accessor util.NamespaceAccessor) (string, error) {
-	return trait.engine.Status(ctx, cli, accessor, trait.CustomStatusFormat, trait.Params)
+func (trait *Trait) EvalStatus(templateContext map[string]interface{}) (string, error) {
+	return trait.engine.Status(templateContext, trait.CustomStatusFormat, trait.Params)
 }
 
 // EvalHealth eval trait health check
-func (trait *Trait) EvalHealth(ctx process.Context, client client.Client, accessor util.NamespaceAccessor) (bool, error) {
-	return trait.engine.HealthCheck(ctx, client, accessor, trait.HealthCheckPolicy, trait.Params)
+func (trait *Trait) EvalHealth(templateContext map[string]interface{}) (bool, error) {
+	return trait.engine.HealthCheck(templateContext, trait.HealthCheckPolicy, trait.Params)
 }
 
 // Appfile describes application
@@ -197,35 +221,56 @@ type Appfile struct {
 func (af *Appfile) GeneratePolicyManifests(ctx context.Context) ([]*unstructured.Unstructured, error) {
 	var manifests []*unstructured.Unstructured
 	for _, policy := range af.PolicyWorkloads {
-		un, err := af.generateUnstructured(policy)
+		un, err := af.generatePolicyUnstructured(policy)
 		if err != nil {
 			return nil, err
 		}
-		manifests = append(manifests, un)
+		manifests = append(manifests, un...)
 	}
 	return manifests, nil
 }
 
-func (af *Appfile) generateUnstructured(workload *Workload) (*unstructured.Unstructured, error) {
+func (af *Appfile) generatePolicyUnstructured(workload *Workload) ([]*unstructured.Unstructured, error) {
 	ctxData := GenerateContextDataFromAppFile(af, workload.Name)
-	un, err := generateUnstructuredFromCUEModule(workload, af.Artifacts, ctxData)
+	uns, err := generatePolicyUnstructuredFromCUEModule(workload, af.Artifacts, ctxData)
 	if err != nil {
 		return nil, err
 	}
-	un.SetName(workload.Name)
-	if len(un.GetNamespace()) == 0 {
-		un.SetNamespace(af.Namespace)
+	for _, un := range uns {
+		if len(un.GetName()) == 0 {
+			un.SetName(workload.Name)
+		}
+		if len(un.GetNamespace()) == 0 {
+			un.SetNamespace(af.Namespace)
+		}
 	}
-	return un, nil
+	return uns, nil
 }
 
-func generateUnstructuredFromCUEModule(wl *Workload, artifacts []*types.ComponentManifest, ctxData velaprocess.ContextData) (*unstructured.Unstructured, error) {
+func generatePolicyUnstructuredFromCUEModule(wl *Workload, artifacts []*types.ComponentManifest, ctxData velaprocess.ContextData) ([]*unstructured.Unstructured, error) {
 	pCtx := velaprocess.NewContext(ctxData)
 	pCtx.PushData(velaprocess.ContextDataArtifacts, prepareArtifactsData(artifacts))
 	if err := wl.EvalContext(pCtx); err != nil {
 		return nil, errors.Wrapf(err, "evaluate base template app=%s in namespace=%s", ctxData.AppName, ctxData.Namespace)
 	}
-	return makeWorkloadWithContext(pCtx, wl, ctxData.Namespace, ctxData.AppName)
+	base, auxs := pCtx.Output()
+	workload, err := base.Unstructured()
+	if err != nil {
+		return nil, errors.Wrapf(err, "evaluate base template policy=%s app=%s", wl.Name, ctxData.AppName)
+	}
+	commonLabels := definition.GetCommonLabels(definition.GetBaseContextLabels(pCtx))
+	util.AddLabels(workload, commonLabels)
+
+	var res = []*unstructured.Unstructured{workload}
+	for _, assist := range auxs {
+		tr, err := assist.Ins.Unstructured()
+		if err != nil {
+			return nil, errors.Wrapf(err, "evaluate auxiliary=%s template for policy=%s app=%s", assist.Name, wl.Name, ctxData.AppName)
+		}
+		util.AddLabels(tr, commonLabels)
+		res = append(res, tr)
+	}
+	return res, nil
 }
 
 // artifacts contains resources in unstructured shape of all components
@@ -308,7 +353,7 @@ func (af *Appfile) SetOAMContract(comp *types.ComponentManifest) error {
 	}
 	for _, trait := range comp.Traits {
 		af.assembleTrait(trait, compName, commonLabels)
-		if err := af.setWorkloadRefToTrait(workloadRef, trait); err != nil {
+		if err := af.setWorkloadRefToTrait(workloadRef, trait); err != nil && !IsNotFoundInAppFile(err) {
 			return errors.WithMessagef(err, "cannot set workload reference to trait %q", trait.GetName())
 		}
 	}
@@ -460,6 +505,11 @@ func (af *Appfile) setWorkloadRefToTrait(wlRef corev1.ObjectReference, trait *un
 		}
 	}
 	return nil
+}
+
+// IsNotFoundInAppFile check if the target error is `not found in appfile`
+func IsNotFoundInAppFile(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "not found in appfile")
 }
 
 // PrepareProcessContext prepares a DSL process Context
@@ -703,6 +753,10 @@ func generateTerraformConfigurationWorkload(wl *Workload, ns string) (*unstructu
 		configuration.Spec.ProviderReference = wl.FullTemplate.ComponentDefinition.Spec.Schematic.Terraform.ProviderReference
 	}
 
+	if configuration.Spec.GitCredentialsSecretReference == nil {
+		configuration.Spec.GitCredentialsSecretReference = wl.FullTemplate.ComponentDefinition.Spec.Schematic.Terraform.GitCredentialsSecretReference
+	}
+
 	switch wl.FullTemplate.Terraform.Type {
 	case "hcl":
 		configuration.Spec.HCL = wl.FullTemplate.Terraform.Configuration
@@ -725,6 +779,7 @@ func generateTerraformConfigurationWorkload(wl *Workload, ns string) (*unstructu
 	delete(variableMap, RegionKey)
 	delete(variableMap, ProviderRefKey)
 	delete(variableMap, ForceDeleteKey)
+	delete(variableMap, GitCredentialsSecretReferenceKey)
 
 	data, err := json.Marshal(variableMap)
 	if err != nil {

@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kubevela/pkg/controller/reconciler"
 	workflowv1alpha1 "github.com/kubevela/workflow/api/v1alpha1"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -200,6 +201,12 @@ var _ = Describe("Test multicluster scenario", func() {
 			Expect(err).Should(Succeed())
 			_, err = execCommand("cluster", "detach", clusterName)
 			Expect(err).Should(Succeed())
+		})
+
+		It("Test vela cluster export-config", func() {
+			out, err := execCommand("cluster", "export-config")
+			Expect(err).Should(Succeed())
+			Expect(out).Should(ContainSubstring("name: " + WorkerClusterName))
 		})
 
 	})
@@ -528,6 +535,9 @@ var _ = Describe("Test multicluster scenario", func() {
 				g.Expect(app.Status.Phase).Should(Equal(common.ApplicationRunningWorkflow))
 				g.Expect(len(app.Status.Workflow.Steps) > 0).Should(BeTrue())
 				g.Expect(app.Status.Workflow.Steps[0].Message).Should(ContainSubstring("is invalid"))
+				rts := &v1beta1.ResourceTrackerList{}
+				g.Expect(k8sClient.List(hubCtx, rts, client.MatchingLabels{oam.LabelAppName: app.Name, oam.LabelAppNamespace: app.Namespace})).Should(Succeed())
+				g.Expect(len(rts.Items)).Should(Equal(0))
 			}, 20*time.Second).Should(Succeed())
 			Expect(k8sClient.Delete(ctx, app)).Should(Succeed())
 			Eventually(func(g Gomega) {
@@ -702,7 +712,9 @@ var _ = Describe("Test multicluster scenario", func() {
 			app := &v1beta1.Application{}
 			Expect(yaml.Unmarshal(bs, app)).Should(Succeed())
 			app.SetNamespace(testNamespace)
-			Expect(k8sClient.Create(hubCtx, app)).Should(Succeed())
+			Eventually(func(g Gomega) { // informer may have latency for the added definition
+				g.Expect(k8sClient.Create(hubCtx, app)).Should(Succeed())
+			}).WithTimeout(10 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
 			key := client.ObjectKeyFromObject(app)
 			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(hubCtx, key, app)).Should(Succeed())
@@ -734,6 +746,7 @@ var _ = Describe("Test multicluster scenario", func() {
 			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(hubCtx, client.ObjectKeyFromObject(app), app)).Should(Succeed())
 				g.Expect(app.Status.Workflow).ShouldNot(BeNil())
+				g.Expect(len(app.Status.Workflow.Steps)).ShouldNot(Equal(0))
 				g.Expect(app.Status.Workflow.Steps[0].Phase).Should(Equal(workflowv1alpha1.WorkflowStepPhaseFailed))
 			}, 20*time.Second).Should(Succeed())
 			By("update application")
@@ -783,6 +796,224 @@ var _ = Describe("Test multicluster scenario", func() {
 				g.Expect(kerrors.IsNotFound(k8sClient.Get(hubCtx, appKey, app))).Should(BeTrue())
 				g.Expect(kerrors.IsNotFound(k8sClient.Get(hubCtx, deployKey, deploy))).Should(BeTrue())
 			}, 20*time.Second).Should(Succeed())
+		})
+
+		It("Test application with input/output in deploy step", func() {
+			By("create application")
+			bs, err := os.ReadFile("./testdata/app/app-deploy-io.yaml")
+			Expect(err).Should(Succeed())
+			app := &v1beta1.Application{}
+			Expect(yaml.Unmarshal(bs, app)).Should(Succeed())
+			app.SetNamespace(namespace)
+			Expect(k8sClient.Create(hubCtx, app)).Should(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(hubCtx, client.ObjectKeyFromObject(app), app)).Should(Succeed())
+				g.Expect(app.Status.Phase).Should(Equal(common.ApplicationRunning))
+			}, 30*time.Second).Should(Succeed())
+
+			By("Check input/output work properly")
+			cm := &corev1.ConfigMap{}
+			cmKey := client.ObjectKey{Namespace: namespace, Name: "deployment-msg"}
+			var (
+				ipLocal  string
+				ipWorker string
+			)
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(hubCtx, cmKey, cm)).Should(Succeed())
+				g.Expect(cm.Data["msg"]).Should(Equal("Deployment has minimum availability."))
+				ipLocal = cm.Data["ip"]
+				g.Expect(ipLocal).ShouldNot(BeEmpty())
+			}, 20*time.Second).Should(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(workerCtx, cmKey, cm)).Should(Succeed())
+				g.Expect(cm.Data["msg"]).Should(Equal("Deployment has minimum availability."))
+				ipWorker = cm.Data["ip"]
+				g.Expect(ipWorker).ShouldNot(BeEmpty())
+			}, 20*time.Second).Should(Succeed())
+			Expect(ipLocal).ShouldNot(Equal(ipWorker))
+
+			By("delete application")
+			appKey := client.ObjectKeyFromObject(app)
+			Expect(k8sClient.Delete(hubCtx, app)).Should(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(kerrors.IsNotFound(k8sClient.Get(hubCtx, appKey, app))).Should(BeTrue())
+			}, 20*time.Second).Should(Succeed())
+		})
+
+		It("Test application with failed gc and restart workflow", func() {
+			By("duplicate cluster")
+			secret := &corev1.Secret{}
+			const secretName = "disconnection-test"
+			Expect(k8sClient.Get(hubCtx, types.NamespacedName{Namespace: kubevelatypes.DefaultKubeVelaNS, Name: WorkerClusterName}, secret)).Should(Succeed())
+			secret.SetName(secretName)
+			secret.SetResourceVersion("")
+			Expect(k8sClient.Create(hubCtx, secret)).Should(Succeed())
+			defer func() {
+				_ = k8sClient.Delete(hubCtx, secret)
+			}()
+
+			By("create cluster normally")
+			bs, err := os.ReadFile("./testdata/app/app-disconnection-test.yaml")
+			Expect(err).Should(Succeed())
+			app := &v1beta1.Application{}
+			Expect(yaml.Unmarshal(bs, app)).Should(Succeed())
+			app.SetNamespace(namespace)
+			Expect(k8sClient.Create(hubCtx, app)).Should(Succeed())
+			key := client.ObjectKeyFromObject(app)
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(hubCtx, key, app)).Should(Succeed())
+				g.Expect(app.Status.Phase).Should(Equal(common.ApplicationRunning))
+			}).WithTimeout(10 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
+
+			By("disconnect cluster")
+			Expect(k8sClient.Get(hubCtx, types.NamespacedName{Namespace: kubevelatypes.DefaultKubeVelaNS, Name: secretName}, secret)).Should(Succeed())
+			secret.Data["endpoint"] = []byte("https://1.2.3.4:9999")
+			Expect(k8sClient.Update(hubCtx, secret)).Should(Succeed())
+
+			By("update application")
+			Expect(k8sClient.Get(hubCtx, key, app)).Should(Succeed())
+			app.Spec.Policies = nil
+			Expect(k8sClient.Update(hubCtx, app)).Should(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(hubCtx, key, app)).Should(Succeed())
+				g.Expect(app.Status.ObservedGeneration).Should(Equal(app.Generation))
+				g.Expect(app.Status.Phase).Should(Equal(common.ApplicationRunning))
+				rts := &v1beta1.ResourceTrackerList{}
+				g.Expect(k8sClient.List(hubCtx, rts, client.MatchingLabels{oam.LabelAppName: key.Name, oam.LabelAppNamespace: key.Namespace})).Should(Succeed())
+				cnt := 0
+				for _, item := range rts.Items {
+					if item.Spec.Type == v1beta1.ResourceTrackerTypeVersioned {
+						cnt++
+					}
+				}
+				g.Expect(cnt).Should(Equal(2))
+			}).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
+
+			By("try update application again")
+			Expect(k8sClient.Get(hubCtx, key, app)).Should(Succeed())
+			if app.Annotations == nil {
+				app.Annotations = map[string]string{}
+			}
+			app.Annotations[oam.AnnotationPublishVersion] = "test"
+			Expect(k8sClient.Update(hubCtx, app)).Should(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(hubCtx, key, app)).Should(Succeed())
+				g.Expect(app.Status.LatestRevision).ShouldNot(BeNil())
+				g.Expect(app.Status.LatestRevision.Revision).Should(Equal(int64(3)))
+				g.Expect(app.Status.ObservedGeneration).Should(Equal(app.Generation))
+				g.Expect(app.Status.Phase).Should(Equal(common.ApplicationRunning))
+			}).WithTimeout(1 * time.Minute).WithPolling(2 * time.Second).Should(Succeed())
+
+			By("clear disconnection cluster secret")
+			Expect(k8sClient.Get(hubCtx, types.NamespacedName{Namespace: kubevelatypes.DefaultKubeVelaNS, Name: secretName}, secret)).Should(Succeed())
+			Expect(k8sClient.Delete(hubCtx, secret)).Should(Succeed())
+
+			By("wait gc application completed")
+			Eventually(func(g Gomega) {
+				rts := &v1beta1.ResourceTrackerList{}
+				g.Expect(k8sClient.List(hubCtx, rts, client.MatchingLabels{oam.LabelAppName: key.Name, oam.LabelAppNamespace: key.Namespace})).Should(Succeed())
+				cnt := 0
+				for _, item := range rts.Items {
+					if item.Spec.Type == v1beta1.ResourceTrackerTypeVersioned {
+						cnt++
+					}
+				}
+				g.Expect(cnt).Should(Equal(1))
+			}).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
+		})
+
+		It("Test application with gc policy and shared-resource policy", func() {
+			app := &v1beta1.Application{}
+			bs, err := os.ReadFile("./testdata/app/app-gc-shared.yaml")
+			Expect(err).Should(Succeed())
+			Expect(yaml.Unmarshal(bs, app)).Should(Succeed())
+			app.SetNamespace(namespace)
+			Expect(k8sClient.Create(hubCtx, app)).Should(Succeed())
+			appKey := client.ObjectKeyFromObject(app)
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(hubCtx, appKey, app)).Should(Succeed())
+				g.Expect(app.Status.Phase).Should(Equal(common.ApplicationRunning))
+				g.Expect(k8sClient.Get(hubCtx, appKey, &corev1.ConfigMap{})).Should(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+			Expect(k8sClient.Get(hubCtx, appKey, app)).Should(Succeed())
+			Expect(k8sClient.Delete(hubCtx, app)).Should(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(kerrors.IsNotFound(k8sClient.Get(hubCtx, appKey, app))).Should(BeTrue())
+				g.Expect(k8sClient.Get(hubCtx, appKey, &corev1.ConfigMap{})).Should(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+		})
+
+		It("Test application skip webservice component health check", func() {
+			td := &v1beta1.TraitDefinition{
+				ObjectMeta: metav1.ObjectMeta{Name: "ignore-health-check", Namespace: namespace},
+				Spec: v1beta1.TraitDefinitionSpec{
+					Schematic: &common.Schematic{CUE: &common.CUE{
+						Template: `
+							patch: metadata: annotations: "app.oam.dev/disable-health-check": parameter.key
+							parameter: key: string
+						`,
+					}},
+					Status: &common.Status{HealthPolicy: `isHealth: context.parameter.key == "true"`},
+				},
+			}
+			Expect(k8sClient.Create(hubCtx, td)).Should(Succeed())
+
+			app := &v1beta1.Application{
+				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: namespace},
+				Spec: v1beta1.ApplicationSpec{Components: []common.ApplicationComponent{{
+					Type:       "webservice",
+					Name:       "test",
+					Properties: &runtime.RawExtension{Raw: []byte(`{"image":"bad"}`)},
+					Traits: []common.ApplicationTrait{{
+						Type:       "ignore-health-check",
+						Properties: &runtime.RawExtension{Raw: []byte(`{"key":"false"}`)},
+					}},
+				}}},
+			}
+			Eventually(func(g Gomega) { // in case the trait definition has not been watched by vela-core
+				g.Expect(k8sClient.Create(hubCtx, app)).Should(Succeed())
+			}).WithTimeout(10 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
+			appKey := client.ObjectKeyFromObject(app)
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(hubCtx, appKey, app)).Should(Succeed())
+				g.Expect(len(app.Status.Services) > 0).Should(BeTrue())
+				g.Expect(len(app.Status.Services[0].Traits) > 0).Should(BeTrue())
+				g.Expect(app.Status.Services[0].Traits[0].Healthy).Should(BeFalse())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(hubCtx, appKey, app)).Should(Succeed())
+				app.Spec.Components[0].Traits[0].Properties.Raw = []byte(`{"key":"true"}`)
+				g.Expect(k8sClient.Update(hubCtx, app)).Should(Succeed())
+			}).WithTimeout(10 * time.Second).Should(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(hubCtx, appKey, app)).Should(Succeed())
+				g.Expect(len(app.Status.Services) > 0).Should(BeTrue())
+				g.Expect(len(app.Status.Services[0].Traits) > 0).Should(BeTrue())
+				g.Expect(app.Status.Services[0].Traits[0].Healthy).Should(BeTrue())
+			}).WithTimeout(20 * time.Second).Should(Succeed())
+		})
+
+		It("Test pause application", func() {
+			app := &v1beta1.Application{}
+			bs, err := os.ReadFile("./testdata/app/app-pause.yaml")
+			Expect(err).Should(Succeed())
+			Expect(yaml.Unmarshal(bs, app)).Should(Succeed())
+			app.SetNamespace(namespace)
+			Expect(k8sClient.Create(hubCtx, app)).Should(Succeed())
+			time.Sleep(10 * time.Second)
+			appKey := client.ObjectKeyFromObject(app)
+			Expect(k8sClient.Get(hubCtx, appKey, app)).Should(Succeed())
+			Expect(app.Status.Workflow).Should(BeNil())
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(hubCtx, appKey, app)).Should(Succeed())
+				reconciler.SetPause(app, false)
+				g.Expect(k8sClient.Update(hubCtx, app)).Should(Succeed())
+			}).WithTimeout(5 * time.Second).WithPolling(time.Second).Should(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(hubCtx, appKey, app)).Should(Succeed())
+				g.Expect(app.Status.Phase).Should(Equal(common.ApplicationRunning))
+			}).WithTimeout(15 * time.Second).WithPolling(3 * time.Second).Should(Succeed())
+			Expect(k8sClient.Delete(hubCtx, app)).Should(Succeed())
 		})
 	})
 })

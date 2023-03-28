@@ -18,7 +18,6 @@ package config
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 	"testing"
 
@@ -32,7 +31,7 @@ import (
 
 func TestParseConfigTemplate(t *testing.T) {
 	r := require.New(t)
-	content, err := ioutil.ReadFile("testdata/helm-repo.cue")
+	content, err := os.ReadFile("testdata/helm-repo.cue")
 	r.Equal(err, nil)
 	var inf = &kubeConfigFactory{}
 	template, err := inf.ParseTemplate("default", content)
@@ -143,6 +142,12 @@ var _ = Describe("test config factory", func() {
 		Expect(len(config.ObjectReferences)).ShouldNot(BeNil())
 		Expect(config.ObjectReferences[0].Kind).Should(Equal("ConfigMap"))
 		Expect(len(config.Targets)).Should(Equal(1))
+	})
+
+	It("check if the config exist", func() {
+		exist, err := fac.IsExist(context.TODO(), "default", "db-config")
+		Expect(err).Should(BeNil())
+		Expect(exist).Should(BeTrue())
 	})
 
 	It("list the distributions", func() {

@@ -17,9 +17,11 @@ limitations under the License.
 package addon
 
 import (
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -152,12 +154,34 @@ func TestMerge2Map(t *testing.T) {
 
 func TestUsingAddonInfo(t *testing.T) {
 	apps := []v1beta1.Application{
-		v1beta1.Application{ObjectMeta: metav1.ObjectMeta{Namespace: "namespace-1", Name: "app-1"}},
-		v1beta1.Application{ObjectMeta: metav1.ObjectMeta{Namespace: "namespace-2", Name: "app-2"}},
-		v1beta1.Application{ObjectMeta: metav1.ObjectMeta{Namespace: "namespace-1", Name: "app-3"}},
+		{ObjectMeta: metav1.ObjectMeta{Namespace: "namespace-1", Name: "app-1"}},
+		{ObjectMeta: metav1.ObjectMeta{Namespace: "namespace-2", Name: "app-2"}},
+		{ObjectMeta: metav1.ObjectMeta{Namespace: "namespace-1", Name: "app-3"}},
+		{ObjectMeta: metav1.ObjectMeta{Namespace: "namespace-3", Name: "app-3"}},
 	}
-	res := usingAppsInfo(apps)
-	assert.Equal(t, true, strings.Contains(res, "Please delete them before disabling the addon"))
+	res := appsDependsOnAddonErrInfo(apps)
+	assert.Contains(t, res, "and other 1 more applications. Please delete all of them before removing.")
+
+	apps = []v1beta1.Application{
+		{ObjectMeta: metav1.ObjectMeta{Namespace: "namespace-1", Name: "app-1"}},
+		{ObjectMeta: metav1.ObjectMeta{Namespace: "namespace-2", Name: "app-2"}},
+		{ObjectMeta: metav1.ObjectMeta{Namespace: "namespace-1", Name: "app-3"}},
+	}
+	res = appsDependsOnAddonErrInfo(apps)
+	assert.Contains(t, res, "Please delete all of them before removing.")
+
+	apps = []v1beta1.Application{
+		{ObjectMeta: metav1.ObjectMeta{Namespace: "namespace-1", Name: "app-1"}},
+	}
+	res = appsDependsOnAddonErrInfo(apps)
+	assert.Contains(t, res, "this addon is being used by: namespace-1/app-1 applications. Please delete all of them before removing.")
+
+	apps = []v1beta1.Application{
+		{ObjectMeta: metav1.ObjectMeta{Namespace: "namespace-1", Name: "app-1"}},
+		{ObjectMeta: metav1.ObjectMeta{Namespace: "namespace-2", Name: "app-2"}},
+	}
+	res = appsDependsOnAddonErrInfo(apps)
+	assert.Contains(t, res, ". Please delete all of them before removing.")
 }
 
 func TestIsAddonDir(t *testing.T) {
@@ -377,6 +401,30 @@ func TestFilterDependencyRegistries(t *testing.T) {
 		res := FilterDependencyRegistries(testCase.index, testCase.registries)
 		assert.Equal(t, res, testCase.res)
 		assert.Equal(t, testCase.registries, testCase.origin)
+	}
+}
+
+func TestCheckAddonPackageValid(t *testing.T) {
+	testCases := []struct {
+		testCase Meta
+		err      error
+	}{{
+		testCase: Meta{},
+		err:      fmt.Errorf("the addon package doesn't have `metadata.yaml`"),
+	}, {
+		testCase: Meta{Version: "v1.4.0"},
+		err:      fmt.Errorf("`matadata.yaml` must define the name of addon"),
+	}, {
+		testCase: Meta{Name: "test-addon"},
+		err:      fmt.Errorf("`matadata.yaml` must define the version of addon"),
+	}, {
+		testCase: Meta{Name: "test-addon", Version: "1.4.5"},
+		err:      nil,
+	},
+	}
+	for _, testCase := range testCases {
+		err := validateAddonPackage(&InstallPackage{Meta: testCase.testCase})
+		assert.Equal(t, reflect.DeepEqual(err, testCase.err), true)
 	}
 }
 

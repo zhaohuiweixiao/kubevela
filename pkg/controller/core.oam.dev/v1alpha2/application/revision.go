@@ -22,6 +22,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/go-version"
 	"github.com/kubevela/pkg/util/k8s"
@@ -40,6 +41,7 @@ import (
 
 	"github.com/kubevela/pkg/util/compression"
 
+	"github.com/kubevela/pkg/controller/sharding"
 	monitorContext "github.com/kubevela/pkg/monitor/context"
 	workflowv1alpha1 "github.com/kubevela/workflow/api/v1alpha1"
 
@@ -51,6 +53,7 @@ import (
 	"github.com/oam-dev/kubevela/pkg/appfile"
 	helmapi "github.com/oam-dev/kubevela/pkg/appfile/helm/flux2apis"
 	"github.com/oam-dev/kubevela/pkg/auth"
+	"github.com/oam-dev/kubevela/pkg/cache"
 	"github.com/oam-dev/kubevela/pkg/component"
 	"github.com/oam-dev/kubevela/pkg/controller/utils"
 	"github.com/oam-dev/kubevela/pkg/cue/process"
@@ -63,7 +66,7 @@ import (
 	pkgutils "github.com/oam-dev/kubevela/pkg/utils"
 )
 
-type contextKey string
+type contextKey int
 
 const (
 	// ConfigMapKeyComponents is the key in ConfigMap Data field for containing data of components
@@ -76,12 +79,6 @@ const (
 	ManifestKeyTraits = "Traits"
 	// ManifestKeyScopes is the key in Component Manifest for containing scope cr reference.
 	ManifestKeyScopes = "Scopes"
-	// ComponentNamespaceContextKey is the key in context that defines the override namespace of component
-	ComponentNamespaceContextKey = contextKey("component-namespace")
-	// ComponentContextKey is the key in context that records the component
-	ComponentContextKey = contextKey("component")
-	// ReplicaKeyContextKey is the key in context that records the replica key
-	ReplicaKeyContextKey = contextKey("replica-key")
 )
 
 const rolloutTraitName = "rollout"
@@ -205,7 +202,7 @@ func SprintComponentManifest(cm *types.ComponentManifest) string {
 func (h *AppHandler) PrepareCurrentAppRevision(ctx context.Context, af *appfile.Appfile) error {
 	if ctx, ok := ctx.(monitorContext.Context); ok {
 		subCtx := ctx.Fork("prepare-current-appRevision", monitorContext.DurationMetric(func(v float64) {
-			metrics.PrepareCurrentAppRevisionDurationHistogram.WithLabelValues("application").Observe(v)
+			metrics.AppReconcileStageDurationHistogram.WithLabelValues("prepare-current-apprev").Observe(v)
 		}))
 		defer subCtx.Commit("finish prepare current appRevision")
 	}
@@ -254,12 +251,12 @@ func (h *AppHandler) gatherRevisionSpec(af *appfile.Appfile) (*v1beta1.Applicati
 		Spec: v1beta1.ApplicationRevisionSpec{
 			ApplicationRevisionCompressibleFields: v1beta1.ApplicationRevisionCompressibleFields{
 				Application:             *copiedApp,
-				ComponentDefinitions:    make(map[string]v1beta1.ComponentDefinition),
+				ComponentDefinitions:    make(map[string]*v1beta1.ComponentDefinition),
 				WorkloadDefinitions:     make(map[string]v1beta1.WorkloadDefinition),
-				TraitDefinitions:        make(map[string]v1beta1.TraitDefinition),
+				TraitDefinitions:        make(map[string]*v1beta1.TraitDefinition),
 				ScopeDefinitions:        make(map[string]v1beta1.ScopeDefinition),
 				PolicyDefinitions:       make(map[string]v1beta1.PolicyDefinition),
-				WorkflowStepDefinitions: make(map[string]v1beta1.WorkflowStepDefinition),
+				WorkflowStepDefinitions: make(map[string]*v1beta1.WorkflowStepDefinition),
 				ScopeGVK:                make(map[string]metav1.GroupVersionKind),
 				Policies:                make(map[string]v1alpha1.Policy),
 			},
@@ -272,7 +269,7 @@ func (h *AppHandler) gatherRevisionSpec(af *appfile.Appfile) (*v1beta1.Applicati
 		if w.FullTemplate.ComponentDefinition != nil {
 			cd := w.FullTemplate.ComponentDefinition.DeepCopy()
 			cd.Status = v1beta1.ComponentDefinitionStatus{}
-			appRev.Spec.ComponentDefinitions[w.FullTemplate.ComponentDefinition.Name] = *cd
+			appRev.Spec.ComponentDefinitions[w.FullTemplate.ComponentDefinition.Name] = cd.DeepCopy()
 		}
 		if w.FullTemplate.WorkloadDefinition != nil {
 			wd := w.FullTemplate.WorkloadDefinition.DeepCopy()
@@ -286,7 +283,7 @@ func (h *AppHandler) gatherRevisionSpec(af *appfile.Appfile) (*v1beta1.Applicati
 			if t.FullTemplate.TraitDefinition != nil {
 				td := t.FullTemplate.TraitDefinition.DeepCopy()
 				td.Status = v1beta1.TraitDefinitionStatus{}
-				appRev.Spec.TraitDefinitions[t.FullTemplate.TraitDefinition.Name] = *td
+				appRev.Spec.TraitDefinitions[t.FullTemplate.TraitDefinition.Name] = td.DeepCopy()
 			}
 		}
 		for _, s := range w.ScopeDefinition {
@@ -310,13 +307,13 @@ func (h *AppHandler) gatherRevisionSpec(af *appfile.Appfile) (*v1beta1.Applicati
 		}
 	}
 	for name, def := range af.RelatedComponentDefinitions {
-		appRev.Spec.ComponentDefinitions[name] = *def
+		appRev.Spec.ComponentDefinitions[name] = def.DeepCopy()
 	}
 	for name, def := range af.RelatedTraitDefinitions {
-		appRev.Spec.TraitDefinitions[name] = *def
+		appRev.Spec.TraitDefinitions[name] = def.DeepCopy()
 	}
 	for name, def := range af.RelatedWorkflowStepDefinitions {
-		appRev.Spec.WorkflowStepDefinitions[name] = *def
+		appRev.Spec.WorkflowStepDefinitions[name] = def.DeepCopy()
 	}
 	for name, po := range af.ExternalPolicies {
 		appRev.Spec.Policies[name] = *po
@@ -821,7 +818,7 @@ func (h *AppHandler) FinalizeAndApplyAppRevision(ctx context.Context) error {
 
 	if ctx, ok := ctx.(monitorContext.Context); ok {
 		subCtx := ctx.Fork("apply-app-revision", monitorContext.DurationMetric(func(v float64) {
-			metrics.ApplyAppRevisionDurationHistogram.WithLabelValues("application").Observe(v)
+			metrics.AppReconcileStageDurationHistogram.WithLabelValues("apply-apprev").Observe(v)
 		}))
 		defer subCtx.Commit("finish apply app revision")
 	}
@@ -842,8 +839,9 @@ func (h *AppHandler) FinalizeAndApplyAppRevision(ctx context.Context) error {
 		Kind:       v1beta1.ApplicationKind,
 		Name:       h.app.Name,
 		UID:        h.app.UID,
-		Controller: pointer.BoolPtr(true),
+		Controller: pointer.Bool(true),
 	}})
+	sharding.PropagateScheduledShardIDLabel(h.app, appRev)
 
 	gotAppRev := &v1beta1.ApplicationRevision{}
 	if err := h.r.Get(ctx, client.ObjectKey{Name: appRev.Name, Namespace: appRev.Namespace}, gotAppRev); err != nil {
@@ -851,6 +849,11 @@ func (h *AppHandler) FinalizeAndApplyAppRevision(ctx context.Context) error {
 			return h.r.Create(ctx, appRev)
 		}
 		return err
+	}
+	if apiequality.Semantic.DeepEqual(gotAppRev.Spec, appRev.Spec) &&
+		apiequality.Semantic.DeepEqual(gotAppRev.GetLabels(), appRev.GetLabels()) &&
+		apiequality.Semantic.DeepEqual(gotAppRev.GetAnnotations(), appRev.GetAnnotations()) {
+		return nil
 	}
 	appRev.ResourceVersion = gotAppRev.ResourceVersion
 
@@ -875,6 +878,12 @@ func (h *AppHandler) UpdateAppLatestRevisionStatus(ctx context.Context) error {
 		// skip update if app revision is not changed
 		return nil
 	}
+	if ctx, ok := ctx.(monitorContext.Context); ok {
+		subCtx := ctx.Fork("update-apprev-status", monitorContext.DurationMetric(func(v float64) {
+			metrics.AppReconcileStageDurationHistogram.WithLabelValues("update-apprev-status").Observe(v)
+		}))
+		defer subCtx.Commit("application revision status updated")
+	}
 	revName := h.currentAppRev.Name
 	revNum, _ := util.ExtractRevisionNum(revName, "-")
 	h.app.Status.LatestRevision = &common.Revision{
@@ -897,6 +906,10 @@ func cleanUpApplicationRevision(ctx context.Context, h *AppHandler) error {
 	if DisableAllApplicationRevision {
 		return nil
 	}
+	t := time.Now()
+	defer func() {
+		metrics.AppReconcileStageDurationHistogram.WithLabelValues("gc-rev.apprev").Observe(time.Since(t).Seconds())
+	}()
 	sortedRevision, err := GetSortedAppRevisions(ctx, h.r.Client, h.app.Name, h.app.Namespace)
 	if err != nil {
 		return err
@@ -949,6 +962,10 @@ func cleanUpWorkflowComponentRevision(ctx context.Context, h *AppHandler) error 
 	if DisableAllComponentRevision {
 		return nil
 	}
+	t := time.Now()
+	defer func() {
+		metrics.AppReconcileStageDurationHistogram.WithLabelValues("gc-rev.comprev").Observe(time.Since(t).Seconds())
+	}()
 	// collect component revision in use
 	compRevisionInUse := map[string]map[string]struct{}{}
 	ctx = auth.ContextWithUserInfo(ctx, h.app)
@@ -1019,12 +1036,22 @@ func (h historiesByComponentRevision) Less(i, j int) bool {
 }
 
 // UpdateApplicationRevisionStatus update application revision status
-func (h *AppHandler) UpdateApplicationRevisionStatus(ctx context.Context, appRev *v1beta1.ApplicationRevision, succeed bool, wfStatus *common.WorkflowStatus) {
+func (h *AppHandler) UpdateApplicationRevisionStatus(ctx context.Context, appRev *v1beta1.ApplicationRevision, wfStatus *common.WorkflowStatus) {
 	if appRev == nil || DisableAllApplicationRevision {
 		return
 	}
-	appRev.Status.Succeeded = succeed
+	appRev.Status.Succeeded = wfStatus.Phase == workflowv1alpha1.WorkflowStateSucceeded
 	appRev.Status.Workflow = wfStatus
+
+	// Versioned the context backend values.
+	if wfStatus.ContextBackend != nil {
+		var cm corev1.ConfigMap
+		if err := h.r.Client.Get(ctx, ktypes.NamespacedName{Namespace: wfStatus.ContextBackend.Namespace, Name: wfStatus.ContextBackend.Name}, &cm); err != nil {
+			klog.Error(err, "[UpdateApplicationRevisionStatus] failed to load the context values", "ApplicationRevision", appRev.Name)
+		}
+		appRev.Status.WorkflowContext = cm.Data
+	}
+
 	if err := h.r.Client.Status().Update(ctx, appRev); err != nil {
 		if logCtx, ok := ctx.(monitorContext.Context); ok {
 			logCtx.Error(err, "[UpdateApplicationRevisionStatus] failed to update application revision status", "ApplicationRevision", appRev.Name)
@@ -1036,12 +1063,14 @@ func (h *AppHandler) UpdateApplicationRevisionStatus(ctx context.Context, appRev
 
 // GetAppRevisions get application revisions by label
 func GetAppRevisions(ctx context.Context, cli client.Client, appName string, appNs string) ([]v1beta1.ApplicationRevision, error) {
-	listOpts := []client.ListOption{
-		client.InNamespace(appNs),
-		client.MatchingLabels{oam.LabelAppName: appName},
-	}
 	appRevisionList := new(v1beta1.ApplicationRevisionList)
-	if err := cli.List(ctx, appRevisionList, listOpts...); err != nil {
+	var err error
+	if cache.OptimizeListOp {
+		err = cli.List(ctx, appRevisionList, client.MatchingFields{cache.AppIndex: appNs + "/" + appName})
+	} else {
+		err = cli.List(ctx, appRevisionList, client.InNamespace(appNs), client.MatchingLabels{oam.LabelAppName: appName})
+	}
+	if err != nil {
 		return nil, err
 	}
 	return appRevisionList.Items, nil

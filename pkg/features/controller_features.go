@@ -84,24 +84,60 @@ const (
 	// MultiStageComponentApply enable multi-stage feature for component
 	// If enabled, the dispatch of manifests is performed in batches according to the stage
 	MultiStageComponentApply featuregate.Feature = "MultiStageComponentApply"
+
+	// PreDispatchDryRun enable dryrun before dispatching resources
+	// Enable this flag can help prevent unsuccessful dispatch resources entering resourcetracker and improve the
+	// user experiences of gc but at the cost of increasing network requests.
+	PreDispatchDryRun featuregate.Feature = "PreDispatchDryRun"
+
+	// ValidateComponentWhenSharding validate component in sharding mode
+	// In sharding mode, since ApplicationRevision will not be cached for webhook, the validation of component
+	// need to call Kubernetes APIServer which can be slow and take up some network traffic. So by default, the
+	// validation of component will be disabled.
+	ValidateComponentWhenSharding = "ValidateComponentWhenSharding"
+
+	// DisableWebhookAutoSchedule disable auto schedule for application mutating webhook when sharding enabled
+	// If set to true, the webhook will not make auto schedule for applications and users can make customized
+	// scheduler for assigning shards to applications
+	DisableWebhookAutoSchedule = "DisableWebhookAutoSchedule"
+
+	// DisableBootstrapClusterInfo disable the cluster info bootstrap at the starting of the controller
+	DisableBootstrapClusterInfo = "DisableBootstrapClusterInfo"
+
+	// InformerCacheFilterUnnecessaryFields filter unnecessary fields for informer cache
+	InformerCacheFilterUnnecessaryFields = "InformerCacheFilterUnnecessaryFields"
+
+	// SharedDefinitionStorageForApplicationRevision use definition cache to reduce duplicated definition storage
+	// for application revision, must be used with InformerCacheFilterUnnecessaryFields
+	SharedDefinitionStorageForApplicationRevision = "SharedDefinitionStorageForApplicationRevision"
+
+	// DisableWorkflowContextConfigMapCache disable the workflow context's configmap informer cache
+	DisableWorkflowContextConfigMapCache = "DisableWorkflowContextConfigMapCache"
 )
 
 var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
-	DeprecatedPolicySpec:          {Default: false, PreRelease: featuregate.Alpha},
-	LegacyObjectTypeIdentifier:    {Default: false, PreRelease: featuregate.Alpha},
-	DeprecatedObjectLabelSelector: {Default: false, PreRelease: featuregate.Alpha},
-	LegacyResourceTrackerGC:       {Default: false, PreRelease: featuregate.Beta},
-	LegacyComponentRevision:       {Default: false, PreRelease: featuregate.Alpha},
-	LegacyResourceOwnerValidation: {Default: false, PreRelease: featuregate.Alpha},
-	DisableReferObjectsFromURL:    {Default: false, PreRelease: featuregate.Alpha},
-	ApplyResourceByUpdate:         {Default: false, PreRelease: featuregate.Alpha},
-	AuthenticateApplication:       {Default: false, PreRelease: featuregate.Alpha},
-	GzipResourceTracker:           {Default: false, PreRelease: featuregate.Alpha},
-	ZstdResourceTracker:           {Default: false, PreRelease: featuregate.Alpha},
-	ApplyOnce:                     {Default: false, PreRelease: featuregate.Alpha},
-	MultiStageComponentApply:      {Default: false, PreRelease: featuregate.Alpha},
-	GzipApplicationRevision:       {Default: false, PreRelease: featuregate.Alpha},
-	ZstdApplicationRevision:       {Default: false, PreRelease: featuregate.Alpha},
+	DeprecatedPolicySpec:                          {Default: false, PreRelease: featuregate.Alpha},
+	LegacyObjectTypeIdentifier:                    {Default: false, PreRelease: featuregate.Alpha},
+	DeprecatedObjectLabelSelector:                 {Default: false, PreRelease: featuregate.Alpha},
+	LegacyResourceTrackerGC:                       {Default: false, PreRelease: featuregate.Beta},
+	LegacyComponentRevision:                       {Default: false, PreRelease: featuregate.Alpha},
+	LegacyResourceOwnerValidation:                 {Default: false, PreRelease: featuregate.Alpha},
+	DisableReferObjectsFromURL:                    {Default: false, PreRelease: featuregate.Alpha},
+	ApplyResourceByUpdate:                         {Default: false, PreRelease: featuregate.Alpha},
+	AuthenticateApplication:                       {Default: false, PreRelease: featuregate.Alpha},
+	GzipResourceTracker:                           {Default: false, PreRelease: featuregate.Alpha},
+	ZstdResourceTracker:                           {Default: false, PreRelease: featuregate.Alpha},
+	ApplyOnce:                                     {Default: false, PreRelease: featuregate.Alpha},
+	MultiStageComponentApply:                      {Default: false, PreRelease: featuregate.Alpha},
+	GzipApplicationRevision:                       {Default: false, PreRelease: featuregate.Alpha},
+	ZstdApplicationRevision:                       {Default: false, PreRelease: featuregate.Alpha},
+	PreDispatchDryRun:                             {Default: true, PreRelease: featuregate.Alpha},
+	ValidateComponentWhenSharding:                 {Default: false, PreRelease: featuregate.Alpha},
+	DisableWebhookAutoSchedule:                    {Default: false, PreRelease: featuregate.Alpha},
+	DisableBootstrapClusterInfo:                   {Default: false, PreRelease: featuregate.Alpha},
+	InformerCacheFilterUnnecessaryFields:          {Default: true, PreRelease: featuregate.Alpha},
+	SharedDefinitionStorageForApplicationRevision: {Default: true, PreRelease: featuregate.Alpha},
+	DisableWorkflowContextConfigMapCache:          {Default: true, PreRelease: featuregate.Alpha},
 }
 
 func init() {

@@ -19,6 +19,7 @@ package resourcekeeper
 import (
 	"context"
 
+	velasync "github.com/kubevela/pkg/util/sync"
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -45,14 +46,14 @@ type resourceCacheEntry struct {
 type resourceCache struct {
 	app *v1beta1.Application
 	cli client.Client
-	m   map[string]*resourceCacheEntry
+	m   *velasync.Map[string, *resourceCacheEntry]
 }
 
 func newResourceCache(cli client.Client, app *v1beta1.Application) *resourceCache {
 	return &resourceCache{
 		app: app,
 		cli: cli,
-		m:   map[string]*resourceCacheEntry{},
+		m:   velasync.NewMap[string, *resourceCacheEntry](),
 	}
 }
 
@@ -63,15 +64,15 @@ func (cache *resourceCache) registerResourceTrackers(rts ...*v1beta1.ResourceTra
 		}
 		for _, mr := range rt.Spec.ManagedResources {
 			key := mr.ResourceKey()
-			entry, cached := cache.m[key]
+			entry, cached := cache.m.Get(key)
 			if !cached {
 				entry = &resourceCacheEntry{obj: mr.ToUnstructured(), mr: mr}
-				cache.m[key] = entry
+				cache.m.Set(key, entry)
 			}
 			entry.usedBy = append(entry.usedBy, rt)
 		}
 	}
-	for _, entry := range cache.m {
+	for _, entry := range cache.m.Data() {
 		for i := len(entry.usedBy) - 1; i >= 0; i-- {
 			if entry.usedBy[i].GetDeletionTimestamp() == nil {
 				entry.latestActiveRT = entry.usedBy[i]
@@ -88,10 +89,10 @@ func (cache *resourceCache) registerResourceTrackers(rts ...*v1beta1.ResourceTra
 
 func (cache *resourceCache) get(ctx context.Context, mr v1beta1.ManagedResource) *resourceCacheEntry {
 	key := mr.ResourceKey()
-	entry, cached := cache.m[key]
+	entry, cached := cache.m.Get(key)
 	if !cached {
 		entry = &resourceCacheEntry{obj: mr.ToUnstructured(), mr: mr}
-		cache.m[key] = entry
+		cache.m.Set(key, entry)
 	}
 	if !entry.loaded {
 		if err := cache.cli.Get(multicluster.ContextWithClusterName(ctx, mr.Cluster), mr.NamespacedName(), entry.obj); err != nil {
@@ -112,13 +113,22 @@ func (cache *resourceCache) exists(manifest *unstructured.Unstructured) bool {
 	if cache.app == nil {
 		return true
 	}
-	appKey, controlledBy := apply.GetAppKey(cache.app), apply.GetControlledBy(manifest)
-	if appKey == controlledBy || manifest.GetResourceVersion() == "" {
+	return IsResourceManagedByApplication(manifest, cache.app)
+}
+
+// IsResourceManagedByApplication check if resource is managed by application
+// If the resource has no ResourceVersion, always return true.
+// If the owner label of the resource equals the given app, return true.
+// If the sharer label of the resource contains the given app, return true.
+// Otherwise, return false.
+func IsResourceManagedByApplication(manifest *unstructured.Unstructured, app *v1beta1.Application) bool {
+	appKey, controlledBy := apply.GetAppKey(app), apply.GetControlledBy(manifest)
+	if appKey == controlledBy || (manifest.GetResourceVersion() == "" && !hasOrphanFinalizer(app)) {
 		return true
 	}
 	annotations := manifest.GetAnnotations()
 	if annotations == nil || annotations[oam.AnnotationAppSharedBy] == "" {
 		return false
 	}
-	return apply.ContainsSharer(annotations[oam.AnnotationAppSharedBy], cache.app)
+	return apply.ContainsSharer(annotations[oam.AnnotationAppSharedBy], app)
 }

@@ -4,9 +4,8 @@ import (
 
 "read-object": {
 	type: "workflow-step"
-	annotations: {}
-	labels: {
-		"ui-hidden": "true"
+	annotations: {
+		"category": "Resource Management"
 	}
 	description: "Read Kubernetes objects from cluster for your workflow steps"
 }

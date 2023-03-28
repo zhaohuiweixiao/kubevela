@@ -5,9 +5,8 @@ import (
 
 "generate-jdbc-connection": {
 	type: "workflow-step"
-	annotations: {}
-	labels: {
-		"ui-hidden": "true"
+	annotations: {
+		"category": "Terraform"
 	}
 	description: "Generate a JDBC connection based on Component of alibaba-rds"
 }

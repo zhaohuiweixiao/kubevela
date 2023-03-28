@@ -24,19 +24,21 @@ import (
 	"github.com/rivo/tview"
 
 	"github.com/oam-dev/kubevela/references/cli/top/component"
-	"github.com/oam-dev/kubevela/references/cli/top/config"
 	"github.com/oam-dev/kubevela/references/cli/top/model"
 )
 
-// RefreshDelay is refresh delay
-const RefreshDelay = 10 * time.Second
+const (
+	// RefreshDelay is refresh delay
+	RefreshDelay       = 10
+	resourceReqTimeout = 3
+)
 
 // ResourceView is the interface to abstract resource view
 type ResourceView interface {
 	model.View
 	InitView(ctx context.Context, app *App)
 	Refresh(event *tcell.EventKey) *tcell.EventKey
-	Update()
+	Update(timeoutCancel func())
 	BuildHeader()
 	BuildBody()
 }
@@ -62,7 +64,7 @@ type CommonResourceView struct {
 // NewCommonView return a new common view
 func NewCommonView(app *App) *CommonResourceView {
 	resourceView := &CommonResourceView{
-		Table:      component.NewTable(),
+		Table:      component.NewTable(app.config.Theme),
 		app:        app,
 		cancelFunc: func() {},
 	}
@@ -73,7 +75,7 @@ func NewCommonView(app *App) *CommonResourceView {
 func (v *CommonResourceView) Init() {
 	v.Table.Init()
 	v.SetBorder(true)
-	v.SetTitleColor(config.ResourceTableTitleColor)
+	v.SetTitleColor(v.app.config.Theme.Table.Title.Color())
 	v.SetSelectable(true, false)
 	v.bindKeys()
 	v.app.SetFocus(v)
@@ -88,7 +90,7 @@ func (v *CommonResourceView) Name() string {
 func (v *CommonResourceView) BuildHeader(header []string) {
 	for i := 0; i < len(header); i++ {
 		c := tview.NewTableCell(header[i])
-		c.SetTextColor(config.ResourceTableHeaderColor)
+		c.SetTextColor(v.app.config.Theme.Table.Header.Color())
 		c.SetExpansion(3)
 		v.SetCell(0, i, c)
 	}
@@ -101,7 +103,7 @@ func (v *CommonResourceView) BuildBody(body [][]string) {
 		columnNum := len(body[i])
 		for j := 0; j < columnNum; j++ {
 			c := tview.NewTableCell(body[i][j])
-			c.SetTextColor(config.ResourceTableBodyColor)
+			c.SetTextColor(v.app.config.Theme.Table.Body.Color())
 			c.SetExpansion(3)
 			v.SetCell(i+1, j, c)
 		}
@@ -115,25 +117,36 @@ func (v *CommonResourceView) Stop() {
 }
 
 // Refresh the base resource view
-func (v *CommonResourceView) Refresh(clear bool, update func()) {
+func (v *CommonResourceView) Refresh(clear bool, update func(timeoutCancel func())) {
 	if clear {
 		v.Clear()
 	}
-	v.app.QueueUpdateDraw(update)
+	updateWithTimeout := func() {
+		ctx, cancelFunc := context.WithTimeout(context.Background(), time.Second*resourceReqTimeout)
+		defer cancelFunc()
+		go update(cancelFunc)
+
+		select {
+		case <-time.After(time.Second * resourceReqTimeout): // timeout
+		case <-ctx.Done(): // success
+		}
+	}
+
+	v.app.QueueUpdateDraw(updateWithTimeout)
 }
 
 // AutoRefresh will refresh the view in every RefreshDelay delay
-func (v *CommonResourceView) AutoRefresh(update func()) {
+func (v *CommonResourceView) AutoRefresh(update func(timeoutCancel func())) {
 	var ctx context.Context
 	ctx, v.cancelFunc = context.WithCancel(context.Background())
 	go func() {
 		for {
+			time.Sleep(RefreshDelay * time.Second)
 			select {
 			case <-ctx.Done():
 				return
 			default:
-				v.Refresh(false, update)
-				time.Sleep(RefreshDelay)
+				v.Refresh(true, update)
 			}
 		}
 	}()
@@ -144,5 +157,6 @@ func (v *CommonResourceView) bindKeys() {
 	v.Actions().Add(model.KeyActions{
 		component.KeyQ:    model.KeyAction{Description: "Back", Action: v.app.Back, Visible: true, Shared: true},
 		component.KeyHelp: model.KeyAction{Description: "Help", Action: v.app.helpView, Visible: true, Shared: true},
+		tcell.KeyCtrlT:    model.KeyAction{Description: "Switch Theme", Action: v.app.SwitchTheme, Visible: true, Shared: true},
 	})
 }

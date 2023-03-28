@@ -18,8 +18,6 @@ test-cli-gen:
 unit-test-core:
 	go test -coverprofile=coverage.txt $(shell go list ./pkg/... ./cmd/... ./apis/... | grep -v apiserver | grep -v applicationconfiguration)
 	go test $(shell go list ./references/... | grep -v apiserver)
-unit-test-apiserver:
-	go test -gcflags=all=-l -coverprofile=coverage.txt $(shell go list ./pkg/... ./cmd/...  | grep -E 'apiserver|velaql')
 
 # Build vela cli binary
 build: vela-cli kubectl-vela
@@ -39,16 +37,23 @@ fmt: goimports installcue
 	$(CUE) fmt ./pkg/stdlib/op.cue
 	$(CUE) fmt ./pkg/workflow/tasks/template/static/*
 # Run go vet against code
+
+sdk_fmt:
+	./hack/sdk/reviewable.sh
+
 vet:
-	go vet ./...
+	@$(INFO) go vet
+	@go vet $(shell go list ./...|grep -v scaffold)
 
 staticcheck: staticchecktool
-	$(STATICCHECK) ./...
+	@$(INFO) staticcheck
+	@$(STATICCHECK) $(shell go list ./...|grep -v scaffold)
 
 lint: golangci
-	$(GOLANGCILINT) run ./...
+	@$(INFO) lint
+	@$(GOLANGCILINT) run --skip-dirs 'scaffold'
 
-reviewable: manifests fmt vet lint staticcheck helm-doc-gen
+reviewable: manifests fmt vet lint staticcheck helm-doc-gen sdk_fmt
 	go mod tidy
 
 # Execute auto-gen code commands and ensure branch is clean.
@@ -60,9 +65,6 @@ check-diff: reviewable
 # Push the docker image
 docker-push:
 	docker push $(VELA_CORE_IMAGE)
-
-build-swagger:
-	go run ./cmd/apiserver/main.go build-swagger ./docs/apidoc/swagger.json
 
 
 
@@ -98,10 +100,9 @@ image-load-runtime-cluster:
 core-test:
 	go test ./pkg/... -coverprofile cover.out
 
-# Build vela core manager and apiserver binary
+# Build vela core manager binary
 manager:
 	$(GOBUILD_ENV) go build -o bin/manager -a -ldflags $(LDFLAGS) ./cmd/core/main.go
-	$(GOBUILD_ENV) go build -o bin/apiserver -a -ldflags $(LDFLAGS) ./cmd/apiserver/main.go
 
 vela-runtime-rollout-manager:
 	$(GOBUILD_ENV) go build -o ./runtime/rollout/bin/manager -a -ldflags $(LDFLAGS) ./runtime/rollout/cmd/main.go

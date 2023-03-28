@@ -4,9 +4,8 @@ apiVersion: core.oam.dev/v1beta1
 kind: WorkflowStepDefinition
 metadata:
   annotations:
+    custom.definition.oam.dev/category: Resource Management
     definition.oam.dev/description: Read Kubernetes objects from cluster for your workflow steps
-  labels:
-    custom.definition.oam.dev/ui-hidden: "true"
   name: read-object
   namespace: {{ include "systemDefinitionNamespace" . }}
 spec:

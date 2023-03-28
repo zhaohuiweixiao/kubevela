@@ -71,19 +71,23 @@ func NewWorkflowCommand(c common.Args, ioStreams cmdutil.IOStreams) *cobra.Comma
 func NewWorkflowSuspendCommand(c common.Args, ioStream cmdutil.IOStreams, wargs *WorkflowArgs) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "suspend",
-		Short:   "Suspend an application workflow.",
-		Long:    "Suspend an application workflow in cluster.",
-		Example: "vela workflow suspend <application-name>",
+		Short:   "Suspend a workflow.",
+		Long:    "Suspend a workflow in cluster.",
+		Example: "vela workflow suspend <workflow-name>",
 		PreRun:  wargs.checkWorkflowNotComplete(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			if err := wargs.getWorkflowInstance(ctx, cmd, args); err != nil {
 				return err
 			}
+			if wargs.StepName != "" {
+				return wargs.StepOperator.Suspend(ctx, wargs.StepName)
+			}
 			return wargs.Operator.Suspend(ctx)
 		},
 	}
 	addNamespaceAndEnvArg(cmd)
+	cmd.Flags().StringVarP(&wargs.StepName, "step", "s", "", "specify the step name in the workflow")
 	cmd.Flags().StringVarP(&wargs.Type, "type", "t", "", "the type of the resource, support: [app, workflow]")
 	return cmd
 }
@@ -92,19 +96,23 @@ func NewWorkflowSuspendCommand(c common.Args, ioStream cmdutil.IOStreams, wargs 
 func NewWorkflowResumeCommand(c common.Args, ioStream cmdutil.IOStreams, wargs *WorkflowArgs) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "resume",
-		Short:   "Resume a suspend application workflow.",
-		Long:    "Resume a suspend application workflow in cluster.",
-		Example: "vela workflow resume <application-name>",
+		Short:   "Resume a suspend workflow.",
+		Long:    "Resume a suspend workflow in cluster.",
+		Example: "vela workflow resume <workflow-name>",
 		PreRun:  wargs.checkWorkflowNotComplete(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			if err := wargs.getWorkflowInstance(ctx, cmd, args); err != nil {
 				return err
 			}
+			if wargs.StepName != "" {
+				return wargs.StepOperator.Resume(ctx, wargs.StepName)
+			}
 			return wargs.Operator.Resume(ctx)
 		},
 	}
 	addNamespaceAndEnvArg(cmd)
+	cmd.Flags().StringVarP(&wargs.StepName, "step", "s", "", "specify the step name in the workflow")
 	cmd.Flags().StringVarP(&wargs.Type, "type", "t", "", "the type of the resource, support: [app, workflow]")
 	return cmd
 }
@@ -113,8 +121,8 @@ func NewWorkflowResumeCommand(c common.Args, ioStream cmdutil.IOStreams, wargs *
 func NewWorkflowTerminateCommand(c common.Args, ioStream cmdutil.IOStreams, wargs *WorkflowArgs) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "terminate",
-		Short:   "Terminate an workflow.",
-		Long:    "Terminate an workflow in cluster.",
+		Short:   "Terminate a workflow.",
+		Long:    "Terminate a workflow in cluster.",
 		Example: "vela workflow terminate <workflow-name>",
 		PreRun:  wargs.checkWorkflowNotComplete(),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -134,18 +142,22 @@ func NewWorkflowTerminateCommand(c common.Args, ioStream cmdutil.IOStreams, warg
 func NewWorkflowRestartCommand(c common.Args, ioStream cmdutil.IOStreams, wargs *WorkflowArgs) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "restart",
-		Short:   "Restart an application workflow.",
-		Long:    "Restart an application workflow in cluster.",
-		Example: "vela workflow restart <application-name>",
+		Short:   "Restart a workflow.",
+		Long:    "Restart a workflow in cluster.",
+		Example: "vela workflow restart <workflow-name>",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			if err := wargs.getWorkflowInstance(ctx, cmd, args); err != nil {
 				return err
 			}
+			if wargs.StepName != "" {
+				return wargs.StepOperator.Restart(ctx, wargs.StepName)
+			}
 			return wargs.Operator.Restart(ctx)
 		},
 	}
 	addNamespaceAndEnvArg(cmd)
+	cmd.Flags().StringVarP(&wargs.StepName, "step", "s", "", "specify the step name in the workflow")
 	cmd.Flags().StringVarP(&wargs.Type, "type", "t", "", "the type of the resource, support: [app, workflow]")
 	return cmd
 }
@@ -238,6 +250,7 @@ type WorkflowArgs struct {
 	Output           string
 	ControllerLabels map[string]string
 	Operator         wfUtils.WorkflowOperator
+	StepOperator     wfUtils.WorkflowStepOperator
 	Writer           io.Writer
 	Args             common.Args
 	StepName         string
@@ -341,6 +354,7 @@ func (w *WorkflowArgs) generateWorkflowInstance(ctx context.Context, cli client.
 			w.WorkflowInstance.Steps = w.App.Spec.Workflow.Steps
 		}
 		w.Operator = operation.NewApplicationWorkflowOperator(cli, w.Writer, w.App)
+		w.StepOperator = operation.NewApplicationWorkflowStepOperator(cli, w.Writer, w.App)
 		w.ControllerLabels = map[string]string{"app.kubernetes.io/name": "vela-core"}
 	case instanceTypeWorkflowRun:
 		var steps []workflowv1alpha1.WorkflowStep
@@ -369,6 +383,7 @@ func (w *WorkflowArgs) generateWorkflowInstance(ctx context.Context, cli client.
 			Debug:  debug,
 		}
 		w.Operator = wfUtils.NewWorkflowRunOperator(cli, w.Writer, w.WorkflowRun)
+		w.StepOperator = wfUtils.NewWorkflowRunStepOperator(cli, w.Writer, w.WorkflowRun)
 		w.ControllerLabels = map[string]string{"app.kubernetes.io/name": "vela-workflow"}
 	default:
 		return fmt.Errorf("unknown workflow instance type %s", w.Type)
@@ -452,7 +467,7 @@ func (w *WorkflowArgs) selectWorkflowStep(msg string) error {
 	if err != nil {
 		return fmt.Errorf("failed to select step %s: %w", unwrapStepName(w.StepName), err)
 	}
-	w.StepName = unwrapStepName(stepName)
+	w.StepName = unwrapStepID(stepName, w.WorkflowInstance)
 	return nil
 }
 

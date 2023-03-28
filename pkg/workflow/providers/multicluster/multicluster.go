@@ -171,24 +171,16 @@ func (p *provider) ListClusters(ctx monitorContext.Context, wfCtx wfContext.Cont
 	return v.FillObject(clusters, "outputs", "clusters")
 }
 
-func (p *provider) Deploy(ctx monitorContext.Context, wfCtx wfContext.Context, v *value.Value, act wfTypes.Action) error {
-	policyNames, err := v.GetStringSlice("policies")
-	if err != nil {
+func (p *provider) Deploy(ctx monitorContext.Context, _ wfContext.Context, v *value.Value, act wfTypes.Action) error {
+	param := DeployParameter{}
+	if err := v.CueValue().Decode(&param); err != nil {
 		return err
 	}
-	parallelism, err := v.GetInt64("parallelism")
-	if err != nil {
-		return err
-	}
-	if parallelism <= 0 {
+	if param.Parallelism <= 0 {
 		return errors.Errorf("parallelism cannot be smaller than 1")
 	}
-	ignoreTerraformComponent, err := v.GetBool("ignoreTerraformComponent")
-	if err != nil {
-		return err
-	}
-	executor := NewDeployWorkflowStepExecutor(p.Client, p.af, p.apply, p.healthCheck, p.renderer, ignoreTerraformComponent)
-	healthy, reason, err := executor.Deploy(ctx, policyNames, int(parallelism))
+	executor := NewDeployWorkflowStepExecutor(p.Client, p.af, p.apply, p.healthCheck, p.renderer, param)
+	healthy, reason, err := executor.Deploy(ctx)
 	if err != nil {
 		return err
 	}

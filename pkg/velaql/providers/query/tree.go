@@ -25,6 +25,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	v12 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -32,14 +33,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	types2 "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/duration"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	"k8s.io/kubectl/pkg/util/podutils"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
 	velatypes "github.com/oam-dev/kubevela/apis/types"
-	"github.com/oam-dev/kubevela/pkg/apiserver/utils/log"
 	"github.com/oam-dev/kubevela/pkg/multicluster"
 	"github.com/oam-dev/kubevela/pkg/oam"
 	"github.com/oam-dev/kubevela/pkg/velaql/providers/query/types"
@@ -107,6 +107,15 @@ func init() {
 				},
 			}),
 			GroupResourceType: GroupResourceType{Group: "apps", Kind: "DaemonSet"},
+		},
+		ChildrenResourcesRule{
+			GroupResourceType: GroupResourceType{Group: "batch", Kind: "Job"},
+			SubResources: buildSubResources([]*SubResourceSelector{
+				{
+					ResourceType: ResourceType{APIVersion: "v1", Kind: "Pod"},
+					listOptions:  defaultWorkloadLabelListOption,
+				},
+			}),
 		},
 		ChildrenResourcesRule{
 			GroupResourceType: GroupResourceType{Group: "", Kind: "Service"},
@@ -209,7 +218,7 @@ func init() {
 		ChildrenResourcesRule{
 			SubResources: buildSubResources([]*SubResourceSelector{
 				{
-					ResourceType: ResourceType{APIVersion: "v1", Kind: "Pod"},
+					ResourceType: ResourceType{APIVersion: "batch/v1", Kind: "Job"},
 					listOptions:  cronJobLabelListOption,
 				},
 			}),
@@ -670,6 +679,14 @@ func additionalInfo(obj unstructured.Unstructured) (map[string]interface{}, erro
 		case "Service":
 			infoFunc = svcAdditionalInfo
 		}
+	case "apps":
+		switch kind {
+		case "Deployment":
+			infoFunc = deploymentAdditionalInfo
+		case "StatefulSet":
+			infoFunc = statefulSetAdditionalInfo
+		default:
+		}
 	default:
 	}
 	if infoFunc != nil {
@@ -719,14 +736,6 @@ func podAdditionalInfo(obj unstructured.Unstructured) (map[string]interface{}, e
 			}
 		}
 		return false
-	}
-
-	translateTimestampSince := func(timestamp v1.Time) string {
-		if timestamp.IsZero() {
-			return "<unknown>"
-		}
-
-		return duration.HumanDuration(time.Since(timestamp.Time))
 	}
 
 	restarts := 0
@@ -812,6 +821,42 @@ func podAdditionalInfo(obj unstructured.Unstructured) (map[string]interface{}, e
 	}, nil
 }
 
+func deploymentAdditionalInfo(obj unstructured.Unstructured) (map[string]interface{}, error) {
+	deployment := appsv1.Deployment{}
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &deployment)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert unstructured Deployment to typed: %w", err)
+	}
+
+	readyReplicas := deployment.Status.ReadyReplicas
+	desiredReplicas := deployment.Spec.Replicas
+	updatedReplicas := deployment.Status.UpdatedReplicas
+	availableReplicas := deployment.Status.AvailableReplicas
+
+	return map[string]interface{}{
+		"Ready":     fmt.Sprintf("%d/%d", readyReplicas, *desiredReplicas),
+		"Update":    updatedReplicas,
+		"Available": availableReplicas,
+		"Age":       translateTimestampSince(deployment.CreationTimestamp),
+	}, nil
+}
+
+func statefulSetAdditionalInfo(obj unstructured.Unstructured) (map[string]interface{}, error) {
+	statefulSet := appsv1.StatefulSet{}
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &statefulSet)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert unstructured StatefulSet to typed: %w", err)
+	}
+
+	readyReplicas := statefulSet.Status.ReadyReplicas
+	desiredReplicas := statefulSet.Spec.Replicas
+
+	return map[string]interface{}{
+		"Ready": fmt.Sprintf("%d/%d", readyReplicas, *desiredReplicas),
+		"Age":   translateTimestampSince(statefulSet.CreationTimestamp),
+	}, nil
+}
+
 func fetchObjectWithResourceTreeNode(ctx context.Context, cluster string, k8sClient client.Client, resource types.ResourceTreeNode) (*unstructured.Unstructured, error) {
 	o := unstructured.Unstructured{}
 	o.SetAPIVersion(resource.APIVersion)
@@ -890,7 +935,7 @@ func listItemByRule(clusterCTX context.Context, k8sClient client.Client, resourc
 
 func iterateListSubResources(ctx context.Context, cluster string, k8sClient client.Client, parentResource types.ResourceTreeNode, depth int, filter func(node types.ResourceTreeNode) bool) ([]*types.ResourceTreeNode, error) {
 	if depth > maxDepth {
-		log.Logger.Warnf("listing application resource tree has reached the max-depth %d parentObject is %v", depth, parentResource)
+		klog.Warningf("listing application resource tree has reached the max-depth %d parentObject is %v", depth, parentResource)
 		return nil, nil
 	}
 	parentObject, err := fetchObjectWithResourceTreeNode(ctx, cluster, k8sClient, parentResource)
@@ -909,7 +954,7 @@ func iterateListSubResources(ctx context.Context, cluster string, k8sClient clie
 			clusterCTX := multicluster.ContextWithClusterName(ctx, cluster)
 			items, err := listItemByRule(clusterCTX, k8sClient, resource, *parentObject, specifiedFunc, rule.DefaultGenListOptionFunc, rule.DisableFilterByOwnerReference)
 			if err != nil {
-				if meta.IsNoMatchError(err) || runtime.IsNotRegisteredError(err) {
+				if meta.IsNoMatchError(err) || runtime.IsNotRegisteredError(err) || kerrors.IsNotFound(err) {
 					klog.Warningf("ignore list resources: %s as %v", resource.Kind, err)
 					continue
 				}
@@ -1005,4 +1050,12 @@ func mergeCustomRules(ctx context.Context, k8sClient client.Client) error {
 		}
 	}
 	return nil
+}
+
+func translateTimestampSince(timestamp v1.Time) string {
+	if timestamp.IsZero() {
+		return "<unknown>"
+	}
+
+	return duration.HumanDuration(time.Since(timestamp.Time))
 }
