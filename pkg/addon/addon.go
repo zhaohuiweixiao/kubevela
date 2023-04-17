@@ -1001,6 +1001,16 @@ func (h *Installer) getAddonMeta() (map[string]SourceMeta, error) {
 func (h *Installer) installDependency(addon *InstallPackage) error {
 	var dependencies []string
 	var addonClusters = getClusters(h.args)
+	// if addon is runtime deploy, empty cluster args deploy to all clusters
+	if addonClusters == nil && isDeployToRuntime(addon) {
+		allClusters, err := multicluster.NewClusterClient(h.cli).List(h.ctx)
+		if err == nil {
+			addonClusters = []string{}
+			for _, cluster := range allClusters.Items {
+				addonClusters = append(addonClusters, cluster.Name)
+			}
+		}
+	}
 	for _, dep := range addon.Dependencies {
 		needInstallAddonDep, depClusters, err := checkDependencyNeedInstall(h.ctx, h.cli, dep.Name, addonClusters)
 		if err != nil {
