@@ -3,7 +3,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: vela-system/kubevela-vela-core-root-cert
-    controller-gen.kubebuilder.io/version: v0.9.2
+    controller-gen.kubebuilder.io/version: v0.11.3
   name: applications.core.oam.dev
 spec:
   group: core.oam.dev
@@ -1068,6 +1068,11 @@ spec:
                             alias:
                               type: string
                           type: object
+                        mode:
+                          description: Mode is only valid for sub steps, it defines
+                            the mode of the sub steps
+                          nullable: true
+                          type: string
                         name:
                           description: Name is the unique name of the workflow step.
                           type: string

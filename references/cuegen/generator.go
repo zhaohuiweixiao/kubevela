@@ -50,48 +50,61 @@ func NewGenerator(f string) (*Generator, error) {
 	g := &Generator{
 		pkg:   pkg,
 		types: types,
-		opts:  defaultOptions,
+		opts:  newDefaultOptions(),
 	}
 
 	return g, nil
+}
+
+// Package returns internal package struct, which should be read-only.
+func (g *Generator) Package() *packages.Package {
+	return g.pkg
 }
 
 // Generate generates CUE schema from Go struct and writes to w.
 // And it can be called multiple times with different options.
 //
 // NB: it's not thread-safe.
-func (g *Generator) Generate(w io.Writer, opts ...Option) error {
-	g.opts = defaultOptions // reset options for each call
+func (g *Generator) Generate(opts ...Option) (decls []cueast.Decl, _ error) {
+	g.opts = newDefaultOptions() // reset options for each call
 	for _, opt := range opts {
 		if opt != nil {
 			opt(g.opts)
 		}
 	}
 
-	var decls []cueast.Decl
 	for _, syntax := range g.pkg.Syntax {
 		for _, decl := range syntax.Decls {
 			if d, ok := decl.(*goast.GenDecl); ok {
 				t, err := g.convertDecls(d)
 				if err != nil {
-					return err
+					return nil, err
 				}
 				decls = append(decls, t...)
 			}
 		}
 	}
 
-	pkg := &cueast.Package{Name: ident(g.pkg.Name, false)}
-
-	f := &cueast.File{Decls: []cueast.Decl{pkg}}
-	f.Decls = append(f.Decls, decls...)
-
-	return g.write(w, f)
+	return decls, nil
 }
 
-func (g *Generator) write(w io.Writer, f *cueast.File) error {
+// Format formats CUE ast decls with package header and writes to w.
+func (g *Generator) Format(w io.Writer, decls []cueast.Decl) error {
 	if w == nil {
 		return fmt.Errorf("nil writer")
+	}
+	if len(decls) == 0 {
+		return fmt.Errorf("invalid decls")
+	}
+
+	pkg := &cueast.Package{Name: Ident(g.pkg.Name, false)}
+
+	f := &cueast.File{Decls: []cueast.Decl{pkg}}
+	for _, decl := range decls {
+		if decl == nil {
+			continue
+		}
+		f.Decls = append(f.Decls, decl)
 	}
 
 	if err := astutil.Sanitize(f); err != nil {

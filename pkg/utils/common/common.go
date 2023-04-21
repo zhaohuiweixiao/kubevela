@@ -60,7 +60,6 @@ import (
 	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	"sigs.k8s.io/yaml"
 
-	prismclusterv1alpha1 "github.com/kubevela/prism/pkg/apis/cluster/v1alpha1"
 	"github.com/kubevela/workflow/pkg/cue/model/value"
 	clustergatewayapi "github.com/oam-dev/cluster-gateway/pkg/apis/cluster/v1alpha1"
 	terraformapiv1 "github.com/oam-dev/terraform-controller/api/v1beta1"
@@ -118,7 +117,6 @@ func init() {
 	_ = clustergatewayapi.AddToScheme(Scheme)
 	_ = metricsV1beta1api.AddToScheme(Scheme)
 	_ = kruisev1alpha1.AddToScheme(Scheme)
-	_ = prismclusterv1alpha1.AddToScheme(Scheme)
 	_ = cloudshellv1alpha1.AddToScheme(Scheme)
 	_ = gatewayv1alpha2.AddToScheme(Scheme)
 	// +kubebuilder:scaffold:scheme
@@ -126,12 +124,12 @@ func init() {
 
 // HTTPOption define the https options
 type HTTPOption struct {
-	Username        string
-	Password        string
-	CaFile          string
-	CertFile        string
-	KeyFile         string
-	InsecureSkipTLS bool
+	Username        string `json:"username,omitempty"`
+	Password        string `json:"password,omitempty"`
+	CaFile          string `json:"caFile,omitempty"`
+	CertFile        string `json:"certFile,omitempty"`
+	KeyFile         string `json:"keyFile,omitempty"`
+	InsecureSkipTLS bool   `json:"insecureSkipTLS,omitempty"`
 }
 
 // InitBaseRestConfig will return reset config for create controller runtime client
@@ -283,6 +281,29 @@ func GenOpenAPI(val *value.Value) (b []byte, err error) {
 	return out.Bytes(), nil
 }
 
+// GenOpenAPIWithCueX generates OpenAPI json schema from cue.Instance
+func GenOpenAPIWithCueX(val cue.Value) (b []byte, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("invalid cue definition to generate open api: %v", r)
+			debug.PrintStack()
+			return
+		}
+	}()
+	if val.Err() != nil {
+		return nil, val.Err()
+	}
+	paramOnlyVal := FillParameterDefinitionFieldIfNotExist(val)
+	defaultConfig := &openapi.Config{ExpandReferences: true}
+	b, err = openapi.Gen(paramOnlyVal, defaultConfig)
+	if err != nil {
+		return nil, err
+	}
+	var out = &bytes.Buffer{}
+	_ = json.Indent(out, b, "", "   ")
+	return out.Bytes(), nil
+}
+
 // RefineParameterValue refines cue value to merely include `parameter` identifier
 func RefineParameterValue(val *value.Value) (cue.Value, error) {
 	defaultValue := cuecontext.New().CompileString("#parameter: {}")
@@ -303,6 +324,20 @@ func RefineParameterValue(val *value.Value) (cue.Value, error) {
 		paramOnlyVal := v.CueValue().FillPath(parameterPath, paramVal.CueValue())
 		return paramOnlyVal, nil
 	}
+}
+
+// FillParameterDefinitionFieldIfNotExist refines cue value to merely include `parameter` identifier
+func FillParameterDefinitionFieldIfNotExist(val cue.Value) cue.Value {
+	defaultValue := cuecontext.New().CompileString("#parameter: {}")
+	defPath := cue.ParsePath("#" + process.ParameterFieldName)
+	if paramVal := val.LookupPath(cue.ParsePath(process.ParameterFieldName)); paramVal.Exists() {
+		if paramVal.IncompleteKind() == cue.BottomKind {
+			return defaultValue
+		}
+		paramOnlyVal := val.Context().CompileString("{}").FillPath(defPath, paramVal)
+		return paramOnlyVal
+	}
+	return defaultValue
 }
 
 // RealtimePrintCommandOutput prints command output in real time

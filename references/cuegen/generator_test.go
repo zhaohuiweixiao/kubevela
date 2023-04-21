@@ -20,6 +20,8 @@ import (
 	"io"
 	"testing"
 
+	cueast "cuelang.org/go/cue/ast"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,16 +40,43 @@ func TestNewGenerator(t *testing.T) {
 
 	assert.NotNil(t, g.pkg)
 	assert.NotNil(t, g.types)
-	assert.Equal(t, g.opts, defaultOptions)
+	assert.Equal(t, g.opts.anyTypes, newDefaultOptions().anyTypes)
+	assert.Equal(t, g.opts.nullable, newDefaultOptions().nullable)
+	// assert can't compare function
+	assert.True(t, g.opts.typeFilter(nil))
 
 	assert.Greater(t, len(g.types), 0)
+}
+
+func TestGeneratorPackage(t *testing.T) {
+	g := testGenerator(t)
+
+	assert.Equal(t, g.Package(), g.pkg)
 }
 
 func TestGeneratorGenerate(t *testing.T) {
 	g := testGenerator(t)
 
-	assert.NoError(t, g.Generate(io.Discard, WithAnyTypes("foo", "bar"), nil))
-	assert.Error(t, g.Generate(nil))
+	decls, err := g.Generate(WithAnyTypes("foo", "bar"), nil)
+	assert.NoError(t, err)
+	assert.NotNil(t, decls)
+
+	decls, err = g.Generate()
+	assert.NoError(t, err)
+	assert.NotNil(t, decls)
+}
+
+func TestGeneratorFormat(t *testing.T) {
+	g := testGenerator(t)
+
+	decls, err := g.Generate()
+	assert.NoError(t, err)
+
+	assert.NoError(t, g.Format(io.Discard, decls))
+	assert.NoError(t, g.Format(io.Discard, []cueast.Decl{nil, nil}))
+	assert.Error(t, g.Format(nil, decls))
+	assert.Error(t, g.Format(io.Discard, nil))
+	assert.Error(t, g.Format(io.Discard, []cueast.Decl{}))
 }
 
 func TestLoadPackage(t *testing.T) {

@@ -22,7 +22,7 @@ env:
 jobs:
 
   detect-noop:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     outputs:
       noop: ${{ steps.noop.outputs.should_skip }}
     permissions:
@@ -38,7 +38,7 @@ jobs:
         continue-on-error: true
 
   staticcheck:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     needs: detect-noop
     if: needs.detect-noop.outputs.noop != 'true'
 
@@ -49,7 +49,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Checkout
-        uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f
+        uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab
         with:
           submodules: true
 
@@ -60,7 +60,7 @@ jobs:
         run: make check-license-header
 
   lint:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     needs: detect-noop
     if: needs.detect-noop.outputs.noop != 'true'
     permissions:
@@ -74,7 +74,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Checkout
-        uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f
+        uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab
         with:
           submodules: true
 
@@ -88,13 +88,13 @@ jobs:
           version: ${{ env.GOLANGCI_VERSION }}
 
   check-diff:
-    runs-on: aliyun
+    runs-on: ubuntu-22.04
     needs: detect-noop
     if: needs.detect-noop.outputs.noop != 'true'
 
     steps:
       - name: Checkout
-        uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f
+        uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab
         with:
           submodules: true
 
@@ -115,6 +115,16 @@ jobs:
           key: ${{ runner.os }}-pkg-${{ hashFiles('**/go.sum') }}
           restore-keys: ${{ runner.os }}-pkg-
 
+      - name: Tear down K3d if exist
+        run: |
+          k3d cluster delete || true
+
+      - name: Setup K3d (Hub)
+        uses: nolar/setup-k3d-k3s@293b8e5822a20bc0d5bcdd4826f1a665e72aba96
+        with:
+          version: ${{ matrix.k8s-version }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Run cross-build
         run: make cross-build
 
@@ -133,7 +143,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f
+        uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab
         with:
           submodules: true
 
@@ -159,12 +169,12 @@ jobs:
           .\bin\vela.exe version
 
   check-core-image-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: detect-noop
     if: needs.detect-noop.outputs.noop != 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f
+        uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab
         with:
           submodules: true
       - name: Set up QEMU
@@ -179,12 +189,12 @@ jobs:
           platforms: linux/amd64,linux/arm64
 
   check-cli-image-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: detect-noop
     if: needs.detect-noop.outputs.noop != 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f
+        uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab
         with:
           submodules: true
       - name: Set up QEMU
