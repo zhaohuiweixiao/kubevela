@@ -1002,7 +1002,7 @@ func (h *Installer) installDependency(addon *InstallPackage) error {
 	var dependencies []string
 	var addonClusters = getClusters(h.args)
 	for _, dep := range addon.Dependencies {
-		needInstallAddonDep, depClusters, err := checkDependencyNeedInstall(h.ctx, h.cli, dep.Name, addonClusters)
+		needInstallAddonDep, err := checkDependencyAddonNeedInstall(h.ctx, h.cli, dep.Name, addonClusters)
 		if err != nil {
 			return err
 		}
@@ -1016,7 +1016,7 @@ func (h *Installer) installDependency(addon *InstallPackage) error {
 		}
 		depHandler := *h
 		// reset dependency addon clusters parameter
-		depArgs, depArgsErr := getDependencyArgs(h.ctx, h.cli, dep.Name, depClusters)
+		depArgs, depArgsErr := getDependencyArgs(h.ctx, h.cli, dep.Name, addonClusters)
 		if depArgsErr != nil {
 			return depArgsErr
 		}
@@ -1072,39 +1072,130 @@ func (h *Installer) installDependency(addon *InstallPackage) error {
 	return nil
 }
 
-// checkDependencyNeedInstall checks whether dependency addon needs to be installed on other clusters
-func checkDependencyNeedInstall(ctx context.Context, k8sClient client.Client, depName string, addonClusters []string) (bool, []string, error) {
+// checkDependencyNeedInstall checks whether dependency addon needs to be reinstalled
+// If the dep addon is not installed, need to install
+// If the dep addon is installed locally, don't need to install
+// If the dep addon is installed from registry and not defined clusters, don't need to install
+// If the dep addon is installed from registry and is defined clusters, and clusters value is nil, don't need to install
+// If the dep addon is installed from registry and is defined clusters, and clusters value is not nil,
+// and the upstream addon's clusters is nil, need to install
+// If the dep addon is installed from registry and is defined clusters, and clusters value is not nil,
+// and the upstream addon's clusters is not nil, the re-installation is based on whether the dep clusters value can contain the upstream clusters value
+func checkDependencyAddonNeedInstall(ctx context.Context, k8sClient client.Client, depName string, addonClusters []string) (bool, error) {
 	depApp, err := FetchAddonRelatedApp(ctx, k8sClient, depName)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
-			return false, nil, err
+			return false, err
 		}
-		// dependent addon is not exist
-		return true, addonClusters, nil
+		// dependent addon is not exist, need to install it
+		return true, nil
 	}
-	topologyPolicyValue := map[string]interface{}{}
-	for _, policy := range depApp.Spec.Policies {
-		if policy.Type == "topology" {
-			unmarshalErr := json.Unmarshal(policy.Properties.Raw, &topologyPolicyValue)
-			if unmarshalErr != nil {
-				return false, nil, unmarshalErr
-			}
-			break
-		}
+
+	// We should not automatically override addons installed locally by the user, so skip to reinstall it
+	labels := depApp.GetLabels()
+	installedRegistry := labels[oam.LabelAddonRegistry]
+	isLocalRegistry := installedRegistry == LocalAddonRegistryName
+	if isLocalRegistry {
+		klog.Warningf("%v is installed locally. Please ensure that it has been installed to the required clusters, if not, please manually install it.", depName)
+		return false, nil
 	}
+
+	// Addons without the clusters parameter can only be installed on the local cluster. So we don't need to reinstall it
+	hasClustersArg, hasClustersArgsErr := hasClustersParameters(ctx, k8sClient, depName)
+	if hasClustersArgsErr != nil {
+		return false, hasClustersArgsErr
+	}
+	if !hasClustersArg {
+		return false, nil
+	}
+
+	// get addon current parameter value
+	depArgs, depArgsErr := GetAddonLegacyParameters(ctx, k8sClient, depName)
+	if depArgsErr != nil && !apierrors.IsNotFound(depArgsErr) {
+		return false, depArgsErr
+	}
+	clusterArgValue, _ := depArgs[types.ClustersArg]
+
 	// nil clusters indicates that the dependent addon is installed on all clusters
-	if topologyPolicyValue["clusters"] == nil {
-		return false, nil, nil
+	if clusterArgValue == nil {
+		return false, nil
 	}
-	// nil addonClusters indicates the addon will be installed,
-	// thus we should set the dependent addon's clusters arg to be nil so that it is installed on all clusters
+
+	// nil addonClusters indicates the addon will be installed all clusters, thus the dependent addon should also to be installed on all clusters.
 	if addonClusters == nil {
-		return true, nil, nil
+		return true, nil
 	}
+
 	// Determine whether the dependent addon's existing clusters can cover the new addon's clusters
+	needInstallAddonDep, _ := hasNotCoveredClusters(clusterArgValue, addonClusters)
+	return needInstallAddonDep, nil
+}
+
+// getDependencyArgs get the dependent addon's install args according to the upstream addon's clusters parameter's value
+// If dependent addon has not define clusters parameter, dont need to set clusters parameter value,
+// If dependent addon clusters parameter's value is nil, the dependent addon is installed on all clusters,
+// dont need to reset clusters parameter value
+// If dependent addon has defined clusters parameter, and clusters is not nil, and addon clusters is nil,
+// set clusters value as nil
+// If dependent addon has defined clusters parameter, and clusters is not nil, and addon clusters is not nil,
+// set clusters value as the union of the dependent addon's and the upstream addon's clusters
+func getDependencyArgs(ctx context.Context, k8sClient client.Client, depName string, addonClusters []string) (map[string]interface{}, error) {
+	hasClustersArg, err := hasClustersParameters(ctx, k8sClient, depName)
+	if err != nil {
+		return nil, err
+	}
+	depArgs, depArgsErr := GetAddonLegacyParameters(ctx, k8sClient, depName)
+	if depArgsErr != nil && !apierrors.IsNotFound(depArgsErr) {
+		return nil, depArgsErr
+	}
+	if !hasClustersArg || depArgs[types.ClustersArg] == nil {
+		return depArgs, nil
+	}
+	if addonClusters == nil {
+		delete(depArgs, types.ClustersArg)
+	} else {
+		clusterArgValue, _ := depArgs[types.ClustersArg]
+		notCovered, depClusters := hasNotCoveredClusters(clusterArgValue, addonClusters)
+		if notCovered {
+			depArgs[types.ClustersArg] = depClusters
+		}
+	}
+	return depArgs, nil
+}
+
+// hasClustersParameters checks whether the addon defines the clusters parameter.
+// If the addon has been installed, get addon package from the installed registry,
+// Otherwise, get addon package from one of registries where this addon exists.
+func hasClustersParameters(ctx context.Context, k8sClient client.Client, addonName string) (bool, error) {
+	var installedRegistry []string
+	depApp, err := FetchAddonRelatedApp(ctx, k8sClient, addonName)
+	if err == nil {
+		labels := depApp.GetLabels()
+		installedRegistry = []string{labels[oam.LabelAddonRegistry]}
+	}
+	addonPackages, err := FindAddonPackagesDetailFromRegistry(context.Background(), k8sClient, []string{addonName}, installedRegistry)
+	// If the state of addon is not disabled, we don't check the error, because it could be installed from local.
+	if err != nil {
+		return false, err
+	}
+	var addonPackage *WholeAddonPackage
+	if len(addonPackages) != 0 {
+		addonPackage = addonPackages[0]
+	}
+	if addonPackage.APISchema == nil {
+		return false, nil
+	}
+	schemas := addonPackage.APISchema.Properties
+	_, hasClusters := schemas[types.ClustersArg]
+	return hasClusters, nil
+}
+
+// hasNotCoveredClusters check if the clusterArgsValue can cover the values of addonClusters,
+// and if not covered, also return the merged clusters array
+func hasNotCoveredClusters(clusterArgValue interface{}, addonClusters []string) (bool, []string) {
 	var needInstallAddonDep = false
 	var depClusters []string
-	originClusters := topologyPolicyValue["clusters"].([]interface{})
+	originClusters := clusterArgValue.([]interface{})
 	for _, r := range originClusters {
 		depClusters = append(depClusters, r.(string))
 	}
@@ -1114,28 +1205,7 @@ func checkDependencyNeedInstall(ctx context.Context, k8sClient client.Client, de
 			needInstallAddonDep = true
 		}
 	}
-	return needInstallAddonDep, depClusters, nil
-}
-
-// getDependencyArgs resets the dependency clusters arg according needed install depClusters
-func getDependencyArgs(ctx context.Context, k8sClient client.Client, depName string, depClusters []string) (map[string]interface{}, error) {
-	depArgs, depArgsErr := GetAddonLegacyParameters(ctx, k8sClient, depName)
-	if depArgsErr != nil && !apierrors.IsNotFound(depArgsErr) {
-		return nil, depArgsErr
-	}
-	// reset the cluster arg
-	if depClusters == nil {
-		// delete clusters args, when render addon, it will use clusterLabelSelector then render addon to all clusters
-		if depArgs != nil && depArgs[types.ClustersArg] != nil {
-			delete(depArgs, types.ClustersArg)
-		}
-	} else {
-		if depArgs == nil {
-			depArgs = map[string]interface{}{}
-		}
-		depArgs[types.ClustersArg] = depClusters
-	}
-	return depArgs, nil
+	return needInstallAddonDep, depClusters
 }
 
 // checkDependency checks if addon's dependency
