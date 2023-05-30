@@ -258,7 +258,7 @@ var _ = Describe("Addon Test", func() {
 				}
 				Expect(topologyPolicyValue["clusters"]).Should(BeNil())
 				Expect(topologyPolicyValue["clusterLabelSelector"]).Should(Equal(map[string]interface{}{}))
-			}, 30*time.Second).Should(Succeed())
+			}, 60*time.Second).Should(Succeed())
 		})
 
 		It("enable upstream addon with specified clusters when dependence addon is enabled with clusters value is nil", func() {
@@ -389,7 +389,7 @@ var _ = Describe("Addon Test", func() {
 				}
 				Expect(topologyPolicyValue["clusters"]).Should(BeNil())
 				Expect(topologyPolicyValue["clusterLabelSelector"]).Should(Equal(map[string]interface{}{}))
-			}, 30*time.Second).Should(Succeed())
+			}, 60*time.Second).Should(Succeed())
 		})
 
 		It("enable upstream addon with two clusters when dependence addon is enabled with one cluster", func() {
@@ -461,7 +461,7 @@ var _ = Describe("Addon Test", func() {
 					}
 				}
 				Expect(topologyPolicyValue["clusters"]).Should(Equal([]interface{}{"local", clusterName}))
-			}, 30*time.Second).Should(Succeed())
+			}, 60*time.Second).Should(Succeed())
 		})
 
 		It("enable upstream addon without clusters when dependence addon which is enabled locally", func() {

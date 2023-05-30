@@ -848,7 +848,6 @@ func RenderArgsSecret(addon *InstallPackage, args map[string]interface{}) *unstr
 func deleteAddonSecret(ctx context.Context, k8sClient client.Client, addonName string) {
 	var sec v1.Secret
 	err := k8sClient.Get(ctx, client.ObjectKey{Namespace: types.DefaultKubeVelaNS, Name: addonutil.Addon2SecName(addonName)}, &sec)
-	//sec := v1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "vela-system", Name: "addon-secret-test-notes"}}
 	if err == nil {
 		err = k8sClient.Delete(ctx, &sec)
 		if err != nil {
@@ -1127,7 +1126,7 @@ func checkDependencyNeedInstall(ctx context.Context, k8sClient client.Client, de
 	if depArgsErr != nil && !apierrors.IsNotFound(depArgsErr) {
 		return false, depArgsErr
 	}
-	clusterArgValue, _ := depArgs[types.ClustersArg]
+	clusterArgValue := depArgs[types.ClustersArg]
 
 	// nil clusters indicates that the dependent addon is installed on all clusters
 	if clusterArgValue == nil {
@@ -1164,8 +1163,11 @@ func getDependencyArgs(ctx context.Context, k8sClient client.Client, depName str
 		if !apierrors.IsNotFound(depErr) {
 			return nil, err
 		}
-		depArgs := map[string]interface{}{
-			types.ClustersArg: addonClusters,
+		depArgs := map[string]interface{}{}
+		if addonClusters != nil {
+			depArgs = map[string]interface{}{
+				types.ClustersArg: addonClusters,
+			}
 		}
 		return depArgs, nil
 	}
@@ -1180,7 +1182,7 @@ func getDependencyArgs(ctx context.Context, k8sClient client.Client, depName str
 	if addonClusters == nil {
 		delete(depArgs, types.ClustersArg)
 	} else {
-		clusterArgValue, _ := depArgs[types.ClustersArg]
+		clusterArgValue := depArgs[types.ClustersArg]
 		notCovered, depClusters := hasNotCoveredClusters(clusterArgValue, addonClusters)
 		if notCovered {
 			depArgs[types.ClustersArg] = depClusters
