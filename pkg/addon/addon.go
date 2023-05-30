@@ -972,6 +972,7 @@ func (h *Installer) loadInstallPackage(name, version string) (*InstallPackage, e
 
 		meta, ok := metas[name]
 		if !ok {
+			fmt.Println("loadInstallPackage errnotexist")
 			return nil, ErrNotExist
 		}
 		var uiData *UIData
@@ -1015,6 +1016,7 @@ func (h *Installer) installDependency(addon *InstallPackage) error {
 	var addonClusters = getClusters(h.args)
 	for _, dep := range addon.Dependencies {
 		needInstallAddonDep, err := checkDependencyNeedInstall(h.ctx, h.cli, dep.Name, addonClusters)
+		klog.Infof("*************dep addon %s to be install %v\n", dep.Name, needInstallAddonDep)
 		if err != nil {
 			return err
 		}

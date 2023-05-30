@@ -276,6 +276,7 @@ func FindAddonPackagesDetailFromRegistry(ctx context.Context, k8sClient client.C
 	}
 
 	if len(addons) == 0 {
+		fmt.Println("FindAddonPackagesDetailFromRegistry errnotexist")
 		return nil, ErrNotExist
 	}
 

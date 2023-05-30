@@ -142,6 +142,7 @@ func (i versionedRegistry) loadAddon(ctx context.Context, name, version string) 
 		return nil, err
 	}
 	if len(versions) == 0 {
+		fmt.Println("loadAddon errnotexist")
 		return nil, ErrNotExist
 	}
 	sort.Sort(sort.Reverse(versions))
@@ -187,6 +188,7 @@ func (i versionedRegistry) loadAddonVersions(addonName string) ([]*repo.ChartVer
 		return nil, err
 	}
 	if len(versions) == 0 {
+		fmt.Println("loadAddonVersions errnotexist")
 		return nil, ErrNotExist
 	}
 	sort.Sort(sort.Reverse(versions))

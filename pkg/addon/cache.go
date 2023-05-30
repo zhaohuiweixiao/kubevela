@@ -105,6 +105,7 @@ func (u *Cache) GetUIData(r Registry, addonName, version string) (*UIData, error
 		}
 		meta, ok := registryMeta[addonName]
 		if !ok {
+			fmt.Println("GetUIData errnotexist")
 			return nil, ErrNotExist
 		}
 		addon, err = r.GetUIData(&meta, UIMetaOptions)
