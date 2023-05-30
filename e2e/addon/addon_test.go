@@ -225,6 +225,15 @@ var _ = Describe("Addon Test", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("enabled successfully."))
 			Eventually(func(g Gomega) {
+				// check parameter
+				sec := &v1.Secret{}
+				g.Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: "addon-secret-mock-dependence", Namespace: "vela-system"}, sec)).Should(Succeed())
+				parameters := map[string]interface{}{}
+				json.Unmarshal(sec.Data[addon.AddonParameterDataKey], &parameters)
+				g.Expect(parameters).Should(BeEquivalentTo(map[string]interface{}{
+					"clusters": []interface{}{"local"},
+					"myparam":  "test",
+				}))
 				// check application render cluster
 				app := &v1beta1.Application{}
 				Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: "addon-mock-dependence", Namespace: "vela-system"}, app)).Should(Succeed())
@@ -247,6 +256,14 @@ var _ = Describe("Addon Test", func() {
 			Expect(output1).To(ContainSubstring("enabled successfully."))
 			// 3. enable mock-dependence-rely addon changes the mock-dependence topology policy
 			Eventually(func(g Gomega) {
+				// check parameter
+				sec := &v1.Secret{}
+				g.Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: "addon-secret-mock-dependence", Namespace: "vela-system"}, sec)).Should(Succeed())
+				parameters := map[string]interface{}{}
+				json.Unmarshal(sec.Data[addon.AddonParameterDataKey], &parameters)
+				g.Expect(parameters).Should(BeEquivalentTo(map[string]interface{}{
+					"myparam": "test",
+				}))
 				app := &v1beta1.Application{}
 				Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: "addon-mock-dependence", Namespace: "vela-system"}, app)).Should(Succeed())
 				topologyPolicyValue := map[string]interface{}{}

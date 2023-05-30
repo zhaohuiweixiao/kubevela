@@ -1032,7 +1032,7 @@ func (h *Installer) installDependency(addon *InstallPackage) error {
 		if depArgsErr != nil {
 			return depArgsErr
 		}
-
+		klog.Infof("*************dep addon %s new args: %s\n", dep.Name, depArgs)
 		depHandler.args = depArgs
 
 		var depAddon *InstallPackage
