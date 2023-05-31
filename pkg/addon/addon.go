@@ -1383,6 +1383,7 @@ func (h *Installer) dispatchAddonResource(addon *InstallPackage) error {
 		return nil
 	}
 
+	fmt.Printf("%v addon's args is %v\n", addon.Name, h.args)
 	if h.args != nil && len(h.args) > 0 {
 		sec := RenderArgsSecret(addon, h.args)
 		addOwner(sec, app)
@@ -1392,6 +1393,7 @@ func (h *Installer) dispatchAddonResource(addon *InstallPackage) error {
 		}
 	} else {
 		// delete parameter file secret
+		fmt.Println("delete secret file")
 		deleteAddonSecret(h.ctx, h.cli, addon.Name)
 	}
 	return nil

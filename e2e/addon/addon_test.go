@@ -33,6 +33,7 @@ import (
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1beta1"
 	"github.com/oam-dev/kubevela/e2e"
 	"github.com/oam-dev/kubevela/pkg/addon"
+	addonutil "github.com/oam-dev/kubevela/pkg/utils/addon"
 	"github.com/oam-dev/kubevela/pkg/utils/common"
 )
 
@@ -218,16 +219,15 @@ var _ = Describe("Addon Test", func() {
 
 		It("enable upstream addon without specified clusters when dependence addon is enabled with specified clusters", func() {
 			// 1. enable mock-dependence addon with local clusters
-			output, err := e2e.InteractiveExec("vela addon enable mock-dependence --clusters local myparam=test", func(c *expect.Console) {
-				_, err = c.SendLine("y")
-				Expect(err).NotTo(HaveOccurred())
-			})
+			dependentName := "mock-dependence3"
+			addonName := "mock-dependence-rely3"
+			output, err := e2e.Exec("vela addon enable " + dependentName + " --clusters local myparam=test")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("enabled successfully."))
 			Eventually(func(g Gomega) {
 				// check parameter
 				sec := &v1.Secret{}
-				g.Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: "addon-secret-mock-dependence", Namespace: "vela-system"}, sec)).Should(Succeed())
+				g.Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: addonutil.Addon2SecName(dependentName), Namespace: "vela-system"}, sec)).Should(Succeed())
 				parameters := map[string]interface{}{}
 				json.Unmarshal(sec.Data[addon.AddonParameterDataKey], &parameters)
 				g.Expect(parameters).Should(BeEquivalentTo(map[string]interface{}{
@@ -236,7 +236,7 @@ var _ = Describe("Addon Test", func() {
 				}))
 				// check application render cluster
 				app := &v1beta1.Application{}
-				Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: "addon-mock-dependence", Namespace: "vela-system"}, app)).Should(Succeed())
+				Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: addonutil.Addon2AppName(dependentName), Namespace: "vela-system"}, app)).Should(Succeed())
 				topologyPolicyValue := map[string]interface{}{}
 				for _, policy := range app.Spec.Policies {
 					if policy.Type == "topology" {
@@ -248,7 +248,7 @@ var _ = Describe("Addon Test", func() {
 				Expect(topologyPolicyValue["clusterLabelSelector"]).Should(BeNil())
 			}, 600*time.Second).Should(Succeed())
 			// 2. enable mock-dependence-rely addon without clusters
-			output1, err := e2e.InteractiveExec("vela addon enable mock-dependence-rely", func(c *expect.Console) {
+			output1, err := e2e.InteractiveExec("vela addon enable "+addonName, func(c *expect.Console) {
 				_, err = c.SendLine("y")
 				Expect(err).NotTo(HaveOccurred())
 			})
@@ -258,14 +258,14 @@ var _ = Describe("Addon Test", func() {
 			Eventually(func(g Gomega) {
 				// check parameter
 				sec := &v1.Secret{}
-				g.Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: "addon-secret-mock-dependence", Namespace: "vela-system"}, sec)).Should(Succeed())
+				g.Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: addonutil.Addon2SecName(dependentName), Namespace: "vela-system"}, sec)).Should(Succeed())
 				parameters := map[string]interface{}{}
 				json.Unmarshal(sec.Data[addon.AddonParameterDataKey], &parameters)
 				g.Expect(parameters).Should(BeEquivalentTo(map[string]interface{}{
 					"myparam": "test",
 				}))
 				app := &v1beta1.Application{}
-				Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: "addon-mock-dependence", Namespace: "vela-system"}, app)).Should(Succeed())
+				Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: addonutil.Addon2AppName(dependentName), Namespace: "vela-system"}, app)).Should(Succeed())
 				topologyPolicyValue := map[string]interface{}{}
 				for _, policy := range app.Spec.Policies {
 					if policy.Type == "topology" {
@@ -275,7 +275,7 @@ var _ = Describe("Addon Test", func() {
 				}
 				Expect(topologyPolicyValue["clusters"]).Should(BeNil())
 				Expect(topologyPolicyValue["clusterLabelSelector"]).Should(Equal(map[string]interface{}{}))
-			}, 60*time.Second).Should(Succeed())
+			}, 30*time.Second).Should(Succeed())
 		})
 
 		It("enable upstream addon with specified clusters when dependence addon is enabled with clusters value is nil", func() {
