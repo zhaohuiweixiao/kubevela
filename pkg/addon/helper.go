@@ -201,7 +201,6 @@ func FindAddonPackagesDetailFromRegistry(ctx context.Context, k8sClient client.C
 	if len(registryNames) == 0 {
 		// Empty registryNames will match all registries
 		regs, err := registryDataStore.ListRegistries(ctx)
-		fmt.Printf("registryDataStore.regs is %v\n", regs)
 		if err != nil {
 			return nil, err
 		}
@@ -241,7 +240,7 @@ func FindAddonPackagesDetailFromRegistry(ctx context.Context, k8sClient client.C
 			})
 			for _, addonName := range addonNames {
 				wholePackage, err := vr.GetDetailedAddon(ctx, addonName, "")
-				fmt.Printf("wholePackage: %v\n", wholePackage)
+				//fmt.Printf("wholePackage: %v\n", wholePackage == nil)
 				if err != nil {
 					continue
 				}
@@ -274,7 +273,7 @@ func FindAddonPackagesDetailFromRegistry(ctx context.Context, k8sClient client.C
 					AvailableVersions: uiData.AvailableVersions,
 					RegistryName:      uiData.RegistryName,
 				}
-				fmt.Printf("----wholePackage: %v\n", wholePackage)
+				//fmt.Printf("----wholePackage: %v\n", wholePackage == nil)
 				merge(wholePackage)
 			}
 		}

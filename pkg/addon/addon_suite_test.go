@@ -194,7 +194,7 @@ var _ = Describe("Addon test", func() {
 		}, 30*time.Second).Should(Succeed())
 
 		// case3: dependency addon has no clusters arg
-		noClusterArgAddonName := "mock-dependence-no-clusters-arg"
+		noClusterArgAddonName := "fluxcd"
 		app = v1beta1.Application{}
 		Expect(yaml.Unmarshal([]byte(legacyAppYamlNoClustersArg), &app)).Should(BeNil())
 		app.SetNamespace(testns)
@@ -695,9 +695,9 @@ spec:
 	legacyAppYamlNoClustersArg = `apiVersion: core.oam.dev/v1beta1
 kind: Application
 metadata:
-  name: addon-mock-dependence-no-clusters-arg
+  name: addon-fluxcd
   labels:
-    addons.oam.dev/registry: KubeVela
+    addons.oam.dev/registry: testreg
 spec:
   components:
     - name: express-server
