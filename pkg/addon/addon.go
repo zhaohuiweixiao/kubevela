@@ -846,6 +846,18 @@ func RenderArgsSecret(addon *InstallPackage, args map[string]interface{}) *unstr
 	return u
 }
 
+// deleteAddonSecret delete the addon's parameter secret
+func deleteAddonSecret(ctx context.Context, k8sClient client.Client, addonName string) {
+	var sec v1.Secret
+	err := k8sClient.Get(ctx, client.ObjectKey{Namespace: types.DefaultKubeVelaNS, Name: addonutil.Addon2SecName(addonName)}, &sec)
+	if err == nil {
+		err = k8sClient.Delete(ctx, &sec)
+		if err != nil {
+			fmt.Printf("fail to delete %v addon parameter file", addonName)
+		}
+	}
+}
+
 // FetchArgsFromSecret fetch addon args from secrets
 func FetchArgsFromSecret(sec *v1.Secret) (map[string]interface{}, error) {
 	res := map[string]interface{}{}
@@ -1025,7 +1037,7 @@ func (h *Installer) installDependency(addon *InstallPackage) error {
 	var dependencies []string
 	var addonClusters = getClusters(h.args)
 	for _, dep := range addon.Dependencies {
-		needInstallAddonDep, err := checkDependencyAddonNeedInstall(h.ctx, h.cli, dep.Name, addonClusters)
+		needInstallAddonDep, err := checkDependencyNeedInstall(h.ctx, h.cli, dep.Name, addonClusters)
 		if err != nil {
 			return err
 		}
@@ -1286,7 +1298,7 @@ func listInstalledAddons(ctx context.Context, k8sClient client.Client) (itemInfo
 // and the upstream addon's clusters is nil, need to install
 // If the dep addon is installed from registry and is defined clusters, and clusters value is not nil,
 // and the upstream addon's clusters is not nil, the re-installation is based on whether the dep clusters value can contain the upstream clusters value
-func checkDependencyAddonNeedInstall(ctx context.Context, k8sClient client.Client, depName string, addonClusters []string) (bool, error) {
+func checkDependencyNeedInstall(ctx context.Context, k8sClient client.Client, depName string, addonClusters []string) (bool, error) {
 	depApp, err := FetchAddonRelatedApp(ctx, k8sClient, depName)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -1319,7 +1331,7 @@ func checkDependencyAddonNeedInstall(ctx context.Context, k8sClient client.Clien
 	if depArgsErr != nil && !apierrors.IsNotFound(depArgsErr) {
 		return false, depArgsErr
 	}
-	clusterArgValue, _ := depArgs[types.ClustersArg]
+	clusterArgValue := depArgs[types.ClustersArg]
 
 	// nil clusters indicates that the dependent addon is installed on all clusters
 	if clusterArgValue == nil {
@@ -1337,18 +1349,35 @@ func checkDependencyAddonNeedInstall(ctx context.Context, k8sClient client.Clien
 }
 
 // getDependencyArgs get the dependent addon's install args according to the upstream addon's clusters parameter's value
-// If dependent addon has not define clusters parameter, dont need to set clusters parameter value,
-// If dependent addon clusters parameter's value is nil, the dependent addon is installed on all clusters,
-// dont need to reset clusters parameter value
-// If dependent addon has defined clusters parameter, and clusters is not nil, and addon clusters is nil,
+// If dep addon has not defined clusters parameter, don't need to set clusters parameter value,
+// If dep addon has not installed, set the clusters value same to addon's clusters
+// If dep addon clusters parameter's value is nil, the dependent addon is installed on all clusters,
+// don't need to reset clusters parameter value
+// If dep addon has defined clusters parameter, and clusters is not nil, and addon clusters is nil,
 // set clusters value as nil
-// If dependent addon has defined clusters parameter, and clusters is not nil, and addon clusters is not nil,
+// If dep addon has defined clusters parameter, and clusters is not nil, and addon clusters is not nil,
 // set clusters value as the union of the dependent addon's and the upstream addon's clusters
 func getDependencyArgs(ctx context.Context, k8sClient client.Client, depName string, addonClusters []string) (map[string]interface{}, error) {
 	hasClustersArg, err := hasClustersParameters(ctx, k8sClient, depName)
 	if err != nil {
 		return nil, err
 	}
+	// dep addon is not install, installed it by assigning clusters value
+	_, depErr := FetchAddonRelatedApp(ctx, k8sClient, depName)
+	if depErr != nil {
+		if !apierrors.IsNotFound(depErr) {
+			return nil, err
+		}
+		depArgs := map[string]interface{}{}
+		if addonClusters != nil {
+			depArgs = map[string]interface{}{
+				types.ClustersArg: addonClusters,
+			}
+		}
+		return depArgs, nil
+	}
+
+	// dep addon is installed
 	depArgs, depArgsErr := GetAddonLegacyParameters(ctx, k8sClient, depName)
 	if depArgsErr != nil && !apierrors.IsNotFound(depArgsErr) {
 		return nil, depArgsErr
@@ -1359,7 +1388,7 @@ func getDependencyArgs(ctx context.Context, k8sClient client.Client, depName str
 	if addonClusters == nil {
 		delete(depArgs, types.ClustersArg)
 	} else {
-		clusterArgValue, _ := depArgs[types.ClustersArg]
+		clusterArgValue := depArgs[types.ClustersArg]
 		notCovered, depClusters := hasNotCoveredClusters(clusterArgValue, addonClusters)
 		if notCovered {
 			depArgs[types.ClustersArg] = depClusters
@@ -1565,6 +1594,9 @@ func (h *Installer) dispatchAddonResource(addon *InstallPackage) error {
 		if err != nil {
 			return err
 		}
+	} else {
+		// delete parameter file secret
+		deleteAddonSecret(h.ctx, h.cli, addon.Name)
 	}
 	return nil
 }
