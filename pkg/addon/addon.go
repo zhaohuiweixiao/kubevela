@@ -1113,6 +1113,7 @@ func checkDependencyNeedInstall(ctx context.Context, k8sClient client.Client, de
 		klog.Warningf("%v is installed locally. Please ensure that it has been installed to the required clusters, if not, please manually install it.", depName)
 		return false, nil
 	}
+	fmt.Printf("%v addon has been installed not locally\n", depName)
 
 	// Addons without the clusters parameter can only be installed on the local cluster. So we don't need to reinstall it
 	hasClustersArg, hasClustersArgsErr := hasClustersParameters(ctx, k8sClient, depName)
@@ -1210,6 +1211,7 @@ func hasClustersParameters(ctx context.Context, k8sClient client.Client, addonNa
 		installedRegistry = []string{labels[oam.LabelAddonRegistry]}
 	}
 	addonPackages, err := FindAddonPackagesDetailFromRegistry(context.Background(), k8sClient, []string{addonName}, installedRegistry)
+	fmt.Printf("%v addon hasClusterParameters func: addonPackages lens: %v\n", addonName, len(addonPackages))
 	// If the state of addon is not disabled, we don't check the error, because it could be installed from local.
 	if err != nil {
 		return false, err
@@ -1218,6 +1220,7 @@ func hasClustersParameters(ctx context.Context, k8sClient client.Client, addonNa
 	if len(addonPackages) != 0 {
 		addonPackage = addonPackages[0]
 	}
+	fmt.Printf("%v addon hasClusterParameters func: addonPackage: %v\n", addonName, addonPackage)
 	if addonPackage.APISchema == nil {
 		return false, nil
 	}
