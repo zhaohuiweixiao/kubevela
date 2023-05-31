@@ -248,11 +248,8 @@ var _ = Describe("Addon Test", func() {
 				Expect(topologyPolicyValue["clusterLabelSelector"]).Should(BeNil())
 			}, 600*time.Second).Should(Succeed())
 			// 2. enable mock-dependence-rely addon without clusters
-			output1, err := e2e.InteractiveExec("vela addon enable "+addonName, func(c *expect.Console) {
-				_, err = c.SendLine("y")
-				Expect(err).NotTo(HaveOccurred())
-			})
-			Expect(err).NotTo(HaveOccurred())
+			output1, err1 := e2e.Exec("vela addon enable " + addonName)
+			Expect(err1).NotTo(HaveOccurred())
 			Expect(output1).To(ContainSubstring("enabled successfully."))
 			// 3. enable mock-dependence-rely addon changes the mock-dependence topology policy
 			Eventually(func(g Gomega) {
