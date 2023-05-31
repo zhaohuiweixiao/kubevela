@@ -1220,7 +1220,7 @@ func hasClustersParameters(ctx context.Context, k8sClient client.Client, addonNa
 	if len(addonPackages) != 0 {
 		addonPackage = addonPackages[0]
 	}
-	fmt.Printf("%v addon hasClusterParameters func: addonPackage: %v\n", addonName, addonPackage)
+	fmt.Printf("%v addon hasClusterParameters func: addonPackage APISchema %v\n", addonName, addonPackage.APISchema)
 	if addonPackage.APISchema == nil {
 		return false, nil
 	}

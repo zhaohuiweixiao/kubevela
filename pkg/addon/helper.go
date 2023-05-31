@@ -240,7 +240,6 @@ func FindAddonPackagesDetailFromRegistry(ctx context.Context, k8sClient client.C
 			})
 			for _, addonName := range addonNames {
 				wholePackage, err := vr.GetDetailedAddon(ctx, addonName, "")
-				//fmt.Printf("wholePackage: %v\n", wholePackage == nil)
 				if err != nil {
 					continue
 				}
@@ -257,7 +256,7 @@ func FindAddonPackagesDetailFromRegistry(ctx context.Context, k8sClient client.C
 				if !ok {
 					continue
 				}
-				uiData, err := r.GetUIData(&sourceMeta, CLIMetaOptions)
+				uiData, err := r.GetUIData(&sourceMeta, UIMetaOptions)
 				if err != nil {
 					continue
 				}
@@ -273,7 +272,6 @@ func FindAddonPackagesDetailFromRegistry(ctx context.Context, k8sClient client.C
 					AvailableVersions: uiData.AvailableVersions,
 					RegistryName:      uiData.RegistryName,
 				}
-				//fmt.Printf("----wholePackage: %v\n", wholePackage == nil)
 				merge(wholePackage)
 			}
 		}

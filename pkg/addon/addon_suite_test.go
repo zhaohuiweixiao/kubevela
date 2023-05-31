@@ -697,7 +697,7 @@ kind: Application
 metadata:
   name: addon-fluxcd
   labels:
-    addons.oam.dev/registry: testreg
+    addons.oam.dev/registry: KubeVela
 spec:
   components:
     - name: express-server
