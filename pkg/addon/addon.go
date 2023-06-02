@@ -1405,7 +1405,10 @@ func hasClustersParameters(ctx context.Context, k8sClient client.Client, addonNa
 	depApp, err := FetchAddonRelatedApp(ctx, k8sClient, addonName)
 	if err == nil {
 		labels := depApp.GetLabels()
-		installedRegistry = []string{labels[oam.LabelAddonRegistry]}
+		registryName, ok := labels[oam.LabelAddonRegistry]
+		if ok {
+			installedRegistry = []string{registryName}
+		}
 	}
 	addonPackages, err := FindAddonPackagesDetailFromRegistry(context.Background(), k8sClient, []string{addonName}, installedRegistry)
 	// If the state of addon is not disabled, we don't check the error, because it could be installed from local.
