@@ -43,7 +43,6 @@ import (
 	"github.com/oam-dev/kubevela/apis/types"
 	"github.com/oam-dev/kubevela/pkg/appfile/dryrun"
 	"github.com/oam-dev/kubevela/pkg/oam"
-	"github.com/oam-dev/kubevela/pkg/oam/discoverymapper"
 	"github.com/oam-dev/kubevela/pkg/utils/common"
 	cmdutil "github.com/oam-dev/kubevela/pkg/utils/util"
 )
@@ -59,7 +58,7 @@ type debugOpts struct {
 }
 
 // NewDebugCommand create `debug` command
-func NewDebugCommand(c common.Args, ioStreams cmdutil.IOStreams) *cobra.Command {
+func NewDebugCommand(c common.Args, order string, ioStreams cmdutil.IOStreams) *cobra.Command {
 	ctx := context.Background()
 	dOpts := &debugOpts{}
 	wargs := &WorkflowArgs{
@@ -69,10 +68,14 @@ func NewDebugCommand(c common.Args, ioStreams cmdutil.IOStreams) *cobra.Command 
 	cmd := &cobra.Command{
 		Use:     "debug",
 		Aliases: []string{"debug"},
-		Short:   "Debug running application",
+		Short:   "Debug running application.",
 		Long:    "Debug running application with debug policy.",
 		Example: `vela debug <application-name>`,
-		PreRun:  wargs.checkDebugMode(),
+		Annotations: map[string]string{
+			types.TagCommandType:  types.TypeApp,
+			types.TagCommandOrder: order,
+		},
+		PreRun: wargs.checkDebugMode(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) < 1 {
 				return fmt.Errorf("must specify application name")
@@ -116,11 +119,7 @@ func (d *debugOpts) debugApplication(ctx context.Context, wargs *WorkflowArgs, c
 		return d.debugWorkflow(ctx, wargs, cli, pd, ioStreams)
 	}
 
-	dm, err := discoverymapper.New(config)
-	if err != nil {
-		return err
-	}
-	dryRunOpt := dryrun.NewDryRunOption(cli, config, dm, pd, []oam.Object{}, false)
+	dryRunOpt := dryrun.NewDryRunOption(cli, config, pd, []oam.Object{}, false)
 	comps, _, err := dryRunOpt.ExecuteDryRun(ctx, app)
 	if err != nil {
 		ioStreams.Info(color.RedString("%s%s", emojiFail, err.Error()))

@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -44,6 +45,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	types2 "k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	commontype "github.com/oam-dev/kubevela/apis/core.oam.dev/common"
@@ -57,6 +59,9 @@ import (
 	"github.com/oam-dev/kubevela/pkg/utils/common"
 	"github.com/oam-dev/kubevela/pkg/utils/filters"
 	"github.com/oam-dev/kubevela/pkg/utils/util"
+	"github.com/oam-dev/kubevela/references/cuegen"
+	providergen "github.com/oam-dev/kubevela/references/cuegen/generators/provider"
+	"github.com/oam-dev/kubevela/references/docgen"
 )
 
 const (
@@ -70,7 +75,7 @@ const (
 func DefinitionCommandGroup(c common.Args, order string, ioStreams util.IOStreams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "def",
-		Short: "Manage Definitions",
+		Short: "Manage definitions.",
 		Long:  "Manage X-Definitions for extension.",
 		Annotations: map[string]string{
 			types.TagCommandOrder: order,
@@ -86,9 +91,11 @@ func DefinitionCommandGroup(c common.Args, order string, ioStreams util.IOStream
 		NewDefinitionDelCommand(c),
 		NewDefinitionInitCommand(c),
 		NewDefinitionValidateCommand(c),
-		NewDefinitionGenDocCommand(c, ioStreams),
-		NewCapabilityShowCommand(c, ioStreams),
+		NewDefinitionDocGenCommand(c, ioStreams),
+		NewCapabilityShowCommand(c, "", ioStreams),
 		NewDefinitionGenAPICommand(c),
+		NewDefinitionGenCUECommand(c, ioStreams),
+		NewDefinitionGenDocCommand(c, ioStreams),
 	)
 	return cmd
 }
@@ -518,8 +525,8 @@ func NewDefinitionGetCommand(c common.Args) *cobra.Command {
 	return cmd
 }
 
-// NewDefinitionGenDocCommand create the `vela def doc-gen` command to generate documentation of definitions
-func NewDefinitionGenDocCommand(c common.Args, ioStreams util.IOStreams) *cobra.Command {
+// NewDefinitionDocGenCommand create the `vela def doc-gen` command to generate documentation of definitions
+func NewDefinitionDocGenCommand(c common.Args, ioStreams util.IOStreams) *cobra.Command {
 	var docPath, location, i18nPath string
 	cmd := &cobra.Command{
 		Use:   "doc-gen NAME",
@@ -766,7 +773,7 @@ func NewDefinitionRenderCommand(c common.Args) *cobra.Command {
 				}
 				config, err := c.GetConfig()
 				if err != nil {
-					return err
+					klog.Infof("ignore kubernetes cluster, unable to get kubeconfig: %s", err.Error())
 				}
 				def := pkgdef.Definition{Unstructured: unstructured.Unstructured{}}
 				if err := def.FromCUEString(string(cueBytes), config); err != nil {
@@ -1069,7 +1076,7 @@ func validateSingleCueFile(fileName string, fileData []byte, c common.Args) (str
 	def := pkgdef.Definition{Unstructured: unstructured.Unstructured{}}
 	config, err := c.GetConfig()
 	if err != nil {
-		return "", err
+		klog.Infof("ignore kubernetes cluster, unable to get kubeconfig: %s", err.Error())
 	}
 	if err := def.FromCUEString(string(fileData), config); err != nil {
 		return "", errors.Wrapf(err, "failed to parse CUE: %s", fileName)
@@ -1135,6 +1142,103 @@ func NewDefinitionGenAPICommand(c common.Args) *cobra.Command {
 	cmd.Flags().StringSliceVar(&languageArgs, "language-args", []string{},
 		fmt.Sprintf("language-specific arguments to pass to the go generator, available options: \n"+langArgsDescStr),
 	)
+
+	return cmd
+}
+
+const (
+	genTypeProvider = "provider"
+)
+
+// NewDefinitionGenCUECommand create the `vela def gen-cue` command to help user generate CUE schema from the go code
+func NewDefinitionGenCUECommand(_ common.Args, streams util.IOStreams) *cobra.Command {
+	var (
+		typ      string
+		typeMap  map[string]string
+		nullable bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "gen-cue [flags] SOURCE.go",
+		Args:  cobra.ExactArgs(1),
+		Short: "Generate CUE schema from Go code.",
+		Long: "Generate CUE schema from Go code.\n" +
+			"* This command provide a way to generate CUE schema from Go code,\n" +
+			"* Which can be used to keep consistency between Go code and CUE schema automatically.\n",
+		Example: "# Generate CUE schema for provider type\n" +
+			"> vela def gen-cue -t provider /path/to/myprovider.go > /path/to/myprovider.cue\n" +
+			"# Generate CUE schema for provider type with custom types\n" +
+			"> vela def gen-cue -t provider --types *k8s.io/apimachinery/pkg/apis/meta/v1/unstructured.Unstructured=ellipsis /path/to/myprovider.go > /path/to/myprovider.cue",
+		RunE: func(cmd *cobra.Command, args []string) (rerr error) {
+			// convert map[string]string to map[string]cuegen.Type
+			newTypeMap := make(map[string]cuegen.Type, len(typeMap))
+			for k, v := range typeMap {
+				newTypeMap[k] = cuegen.Type(v)
+			}
+
+			file := args[0]
+			if !strings.HasSuffix(file, ".go") {
+				return fmt.Errorf("invalid file %s, must be a go file", file)
+			}
+
+			switch typ {
+			case genTypeProvider:
+				return providergen.Generate(providergen.Options{
+					File:     file,
+					Writer:   streams.Out,
+					Types:    newTypeMap,
+					Nullable: nullable,
+				})
+			default:
+				return fmt.Errorf("invalid type %s", typ)
+			}
+		},
+	}
+
+	cmd.Flags().StringVarP(&typ, "type", "t", "", "Type of the definition to generate. Valid types: [provider]")
+	cmd.Flags().BoolVar(&nullable, "nullable", false, "Whether to generate null enum for pointer type")
+	cmd.Flags().StringToStringVar(&typeMap, "types", map[string]string{}, "Special types to generate, format: <package+struct>=[any|ellipsis]. e.g. --types=*k8s.io/apimachinery/pkg/apis/meta/v1/unstructured.Unstructured=ellipsis")
+
+	return cmd
+}
+
+// NewDefinitionGenDocCommand create the `vela def gen-doc` command to generate documentation of definitions
+func NewDefinitionGenDocCommand(_ common.Args, streams util.IOStreams) *cobra.Command {
+	var typ string
+
+	cmd := &cobra.Command{
+		Use:   "gen-doc [flags] SOURCE.cue...",
+		Args:  cobra.MinimumNArgs(1),
+		Short: "Generate documentation for non component, trait, policy and workflow definitions",
+		Long:  "Generate documentation for non component, trait, policy and workflow definitions",
+		Example: "1. Generate documentation for provider definitions\n" +
+			"> vela def gen-doc -t provider provider1.cue provider2.cue > provider.md",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			readers := make([]io.Reader, 0, len(args))
+
+			for _, arg := range args {
+				if !strings.HasSuffix(arg, ".cue") {
+					return fmt.Errorf("invalid file %s, must be a cue file", arg)
+				}
+
+				f, err := os.ReadFile(filepath.Clean(arg))
+				if err != nil {
+					return fmt.Errorf("read file %s: %w", arg, err)
+				}
+
+				readers = append(readers, bytes.NewReader(f))
+			}
+
+			switch typ {
+			case genTypeProvider:
+				return docgen.GenerateProvidersMarkdown(cmd.Context(), readers, streams.Out)
+			default:
+				return fmt.Errorf("invalid type %s", typ)
+			}
+		},
+	}
+
+	cmd.Flags().StringVarP(&typ, "type", "t", "", "Type of the definition to generate. Valid types: [provider]")
 
 	return cmd
 }

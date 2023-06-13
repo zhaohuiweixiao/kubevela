@@ -43,12 +43,10 @@ import (
 
 	commontypes "github.com/oam-dev/kubevela/apis/core.oam.dev/common"
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1alpha1"
-	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1alpha2"
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1beta1"
 	"github.com/oam-dev/kubevela/apis/types"
 	pkgappfile "github.com/oam-dev/kubevela/pkg/appfile"
 	"github.com/oam-dev/kubevela/pkg/multicluster"
-	"github.com/oam-dev/kubevela/pkg/oam/discoverymapper"
 	"github.com/oam-dev/kubevela/pkg/policy"
 	"github.com/oam-dev/kubevela/pkg/resourcetracker"
 	"github.com/oam-dev/kubevela/pkg/utils/common"
@@ -57,29 +55,6 @@ import (
 	"github.com/oam-dev/kubevela/references/appfile"
 	references "github.com/oam-dev/kubevela/references/common"
 )
-
-// HealthStatus represents health status strings.
-type HealthStatus = v1alpha2.HealthStatus
-
-const (
-	// HealthStatusNotDiagnosed means there's no health scope referred or unknown health status returned
-	HealthStatusNotDiagnosed HealthStatus = "NOT DIAGNOSED"
-)
-
-const (
-	// HealthStatusHealthy represents healthy status.
-	HealthStatusHealthy = v1alpha2.StatusHealthy
-	// HealthStatusUnhealthy represents unhealthy status.
-	HealthStatusUnhealthy = v1alpha2.StatusUnhealthy
-	// HealthStatusUnknown represents unknown status.
-	HealthStatusUnknown = v1alpha2.StatusUnknown
-)
-
-// WorkloadHealthCondition holds health status of any resource
-type WorkloadHealthCondition = v1alpha2.WorkloadHealthCondition
-
-// ScopeHealthCondition holds health condition of a scope
-type ScopeHealthCondition = v1alpha2.ScopeHealthCondition
 
 // AppDeployStatus represents the status of application during "vela init" and "vela up --wait"
 type AppDeployStatus int
@@ -101,7 +76,7 @@ func NewAppStatusCommand(c common.Args, order string, ioStreams cmdutil.IOStream
 	var outputFormat string
 	var detail bool
 	cmd := &cobra.Command{
-		Use:   "status APP_NAME",
+		Use:   "status",
 		Short: "Show status of an application.",
 		Long:  "Show status of vela application.",
 		Example: `  # Get basic app info
@@ -186,7 +161,7 @@ func NewAppStatusCommand(c common.Args, order string, ioStreams cmdutil.IOStream
 		},
 		Annotations: map[string]string{
 			types.TagCommandOrder: order,
-			types.TagCommandType:  types.TypeApp,
+			types.TagCommandType:  types.TypeStart,
 		},
 	}
 	cmd.Flags().StringP("svc", "s", "", "service name")
@@ -499,10 +474,6 @@ func printApplicationTree(c common.Args, cmd *cobra.Command, appName string, app
 	if err != nil {
 		return err
 	}
-	dm, err := discoverymapper.New(config)
-	if err != nil {
-		return err
-	}
 
 	app, err := loadRemoteApplication(cli, appNs, appName)
 	if err != nil {
@@ -520,7 +491,7 @@ func printApplicationTree(c common.Args, cmd *cobra.Command, appName string, app
 	}
 
 	var placements []v1alpha1.PlacementDecision
-	af, err := pkgappfile.NewApplicationParser(cli, dm, pd).GenerateAppFile(context.Background(), app)
+	af, err := pkgappfile.NewApplicationParser(cli, pd).GenerateAppFile(context.Background(), app)
 	if err == nil {
 		placements, _ = policy.GetPlacementsFromTopologyPolicies(context.Background(), cli, app.GetNamespace(), af.Policies, true)
 	}

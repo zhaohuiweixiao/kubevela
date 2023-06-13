@@ -17,12 +17,12 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout
-        uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab
+        uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9
         with:
           fetch-depth: 0
 
       - name: Open Backport PR
-        uses: zeebe-io/backport-action@a759fd2d7d3314c9bb57d97a0350a12e878d3c7a
+        uses: zeebe-io/backport-action@b9f8a0a03e4697a60b4daa3a4b3bb054bf90c9bd
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           github_workspace: ${{ github.workspace }}

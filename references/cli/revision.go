@@ -29,7 +29,7 @@ import (
 
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1beta1"
 	"github.com/oam-dev/kubevela/apis/types"
-	"github.com/oam-dev/kubevela/pkg/controller/core.oam.dev/v1alpha2/application"
+	"github.com/oam-dev/kubevela/pkg/controller/core.oam.dev/v1beta1/application"
 	"github.com/oam-dev/kubevela/pkg/oam"
 	"github.com/oam-dev/kubevela/pkg/utils"
 	"github.com/oam-dev/kubevela/pkg/utils/common"
@@ -40,13 +40,14 @@ const (
 )
 
 // RevisionCommandGroup the commands for managing application revisions
-func RevisionCommandGroup(c common.Args) *cobra.Command {
+func RevisionCommandGroup(c common.Args, order string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "revision",
-		Short: "Manage Application Revisions",
+		Short: "Manage Application Revisions.",
 		Long:  "Manage KubeVela Application Revisions",
 		Annotations: map[string]string{
-			types.TagCommandType: types.TypeApp,
+			types.TagCommandType:  types.TypeApp,
+			types.TagCommandOrder: order,
 		},
 	}
 	cmd.AddCommand(
@@ -133,11 +134,6 @@ func getRevision(ctx context.Context, c common.Args, format string, out io.Write
 		return err
 	}
 
-	dm, err := c.GetDiscoveryMapper()
-	if err != nil {
-		return err
-	}
-
 	pd, err := c.GetPackageDiscover()
 	if err != nil {
 		return err
@@ -153,7 +149,7 @@ func getRevision(ctx context.Context, c common.Args, format string, out io.Write
 		return fmt.Errorf(fmt.Sprintf("Unable to get application revision %s in namespace %s", name, namespace))
 	}
 
-	queryValue, err := velaql.NewViewHandler(cli, kubeConfig, dm, pd).QueryView(ctx, query)
+	queryValue, err := velaql.NewViewHandler(cli, kubeConfig, pd).QueryView(ctx, query)
 	if err != nil {
 		klog.Errorf("fail to query the view %s", err.Error())
 		return fmt.Errorf(fmt.Sprintf("Unable to get application revision %s in namespace %s", name, namespace))

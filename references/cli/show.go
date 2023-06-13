@@ -65,7 +65,7 @@ var generateDocOnly bool
 var showFormat string
 
 // NewCapabilityShowCommand shows the reference doc for a component type or trait
-func NewCapabilityShowCommand(c common.Args, ioStreams cmdutil.IOStreams) *cobra.Command {
+func NewCapabilityShowCommand(c common.Args, order string, ioStreams cmdutil.IOStreams) *cobra.Command {
 	var revision, path, location, i18nPath string
 	cmd := &cobra.Command{
 		Use:   "show",
@@ -121,7 +121,8 @@ func NewCapabilityShowCommand(c common.Args, ioStreams cmdutil.IOStreams) *cobra
 			return ShowReferenceConsole(ctx, c, ioStreams, capabilityName, namespace, location, i18nPath, int64(ver))
 		},
 		Annotations: map[string]string{
-			types.TagCommandType: types.TypeStart,
+			types.TagCommandType:  types.TypeStart,
+			types.TagCommandOrder: order,
 		},
 	}
 
@@ -206,16 +207,11 @@ func startReferenceDocsSite(ctx context.Context, ns string, c common.Args, ioStr
 	if err != nil {
 		return err
 	}
-	dm, err := c.GetDiscoveryMapper()
-	if err != nil {
-		return err
-	}
 	ref := &docgen.MarkdownReference{
 		ParseReference: docgen.ParseReference{
 			Client: cli,
 			I18N:   &docgen.En,
 		},
-		DiscoveryMapper: dm,
 	}
 
 	if err := ref.CreateMarkdown(ctx, capabilities, docsPath, true, pd); err != nil {
@@ -230,7 +226,7 @@ func startReferenceDocsSite(ctx context.Context, ns string, c common.Args, ioStr
 		return nil
 	}
 
-	if capabilityType != types.TypeWorkload && capabilityType != types.TypeTrait && capabilityType != types.TypeScope &&
+	if capabilityType != types.TypeWorkload && capabilityType != types.TypeTrait &&
 		capabilityType != types.TypeComponentDefinition && capabilityType != types.TypeWorkflowStep && capabilityType != "" {
 		return fmt.Errorf("unsupported type: %v", capabilityType)
 	}
@@ -443,7 +439,6 @@ func getDefinitions(capabilities []types.Capability) ([]string, []string, []stri
 			workflowSteps = append(workflowSteps, c.Name)
 		case types.TypePolicy:
 			policies = append(policies, c.Name)
-		case types.TypeScope:
 		case types.TypeWorkload:
 		default:
 		}
@@ -475,10 +470,6 @@ func ShowReferenceMarkdown(ctx context.Context, c common.Args, ioStreams cmdutil
 		return err
 	}
 	ref.ParseReference = paserRef
-	ref.DiscoveryMapper, err = c.GetDiscoveryMapper()
-	if err != nil {
-		return err
-	}
 	if err := ref.GenerateReferenceDocs(ctx, c, outputPath); err != nil {
 		return errors.Wrap(err, "failed to generate reference docs")
 	}

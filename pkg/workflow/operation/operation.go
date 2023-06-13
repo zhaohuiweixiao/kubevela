@@ -35,11 +35,12 @@ import (
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/common"
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1beta1"
 	"github.com/oam-dev/kubevela/pkg/appfile"
-	"github.com/oam-dev/kubevela/pkg/controller/core.oam.dev/v1alpha2/application"
+	"github.com/oam-dev/kubevela/pkg/controller/core.oam.dev/v1beta1/application"
 	"github.com/oam-dev/kubevela/pkg/controller/utils"
 	"github.com/oam-dev/kubevela/pkg/oam"
 	"github.com/oam-dev/kubevela/pkg/resourcetracker"
 	"github.com/oam-dev/kubevela/pkg/rollout"
+	kubevelaapp "github.com/oam-dev/kubevela/pkg/utils/app"
 	errors3 "github.com/oam-dev/kubevela/pkg/utils/errors"
 )
 
@@ -320,7 +321,7 @@ func (wo appWorkflowOperator) Rollback(ctx context.Context) error {
 	}
 	appKey := client.ObjectKeyFromObject(app)
 	// rollback application spec and freeze
-	controllerRequirement, err := utils.FreezeApplication(ctx, wo.cli, app, func() {
+	controllerRequirement, err := kubevelaapp.FreezeApplication(ctx, wo.cli, app, func() {
 		app.Spec = rev.Spec.Application.Spec
 		oam.SetPublishVersion(app, publishVersion)
 	})
@@ -369,7 +370,7 @@ func (wo appWorkflowOperator) Rollback(ctx context.Context) error {
 	}
 
 	// unfreeze application
-	if err = utils.UnfreezeApplication(ctx, wo.cli, app, nil, controllerRequirement); err != nil {
+	if err = kubevelaapp.UnfreezeApplication(ctx, wo.cli, app, nil, controllerRequirement); err != nil {
 		return errors.Wrapf(err, "failed to resume application to restart")
 	}
 
@@ -442,7 +443,7 @@ func (wo appWorkflowStepOperator) Restart(ctx context.Context, step string) erro
 			return err
 		}
 	}
-	appParser := appfile.NewApplicationParser(wo.cli, nil, nil)
+	appParser := appfile.NewApplicationParser(wo.cli, nil)
 	appFile, err := appParser.GenerateAppFile(ctx, app)
 	if err != nil {
 		return fmt.Errorf("failed to parse appfile: %w", err)

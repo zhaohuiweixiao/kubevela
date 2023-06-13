@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v12 "k8s.io/api/core/v1"
 	crdv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -41,8 +41,6 @@ import (
 	coreoam "github.com/oam-dev/kubevela/apis/core.oam.dev"
 
 	"github.com/kubevela/workflow/pkg/cue/packages"
-
-	"github.com/oam-dev/kubevela/pkg/oam/discoverymapper"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -50,7 +48,6 @@ var cfg *rest.Config
 var scheme *runtime.Scheme
 var k8sClient client.Client
 var testEnv *envtest.Environment
-var dm discoverymapper.DiscoveryMapper
 var pd *packages.PackageDiscover
 var testns string
 var dc *discovery.DiscoveryClient
@@ -60,7 +57,7 @@ func TestAddon(t *testing.T) {
 	RunSpecs(t, "Addon Suite test")
 }
 
-var _ = BeforeSuite(func(done Done) {
+var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
 	By("bootstrapping test environment")
 	useExistCluster := false
@@ -90,9 +87,6 @@ var _ = BeforeSuite(func(done Done) {
 	Expect(err).ToNot(HaveOccurred())
 	Expect(dc).ShouldNot(BeNil())
 
-	dm, err = discoverymapper.New(cfg)
-	Expect(err).ToNot(HaveOccurred())
-	Expect(dm).ToNot(BeNil())
 	pd, err = packages.NewPackageDiscover(cfg)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(pd).ToNot(BeNil())
@@ -104,9 +98,7 @@ var _ = BeforeSuite(func(done Done) {
 
 	err = stepHelmHttpServer()
 	Expect(err).Should(Succeed())
-
-	close(done)
-}, 120)
+})
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")

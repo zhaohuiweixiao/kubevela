@@ -30,7 +30,7 @@ import (
 	"github.com/oam-dev/kubevela/apis/core.oam.dev/v1beta1"
 	"github.com/oam-dev/kubevela/apis/types"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	crdv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -47,7 +47,6 @@ import (
 	coreoam "github.com/oam-dev/kubevela/apis/core.oam.dev"
 	"github.com/oam-dev/kubevela/pkg/appfile"
 	"github.com/oam-dev/kubevela/pkg/oam"
-	"github.com/oam-dev/kubevela/pkg/oam/discoverymapper"
 	oamutil "github.com/oam-dev/kubevela/pkg/oam/util"
 )
 
@@ -55,7 +54,6 @@ var cfg *rest.Config
 var scheme *runtime.Scheme
 var k8sClient client.Client
 var testEnv *envtest.Environment
-var dm discoverymapper.DiscoveryMapper
 var pd *packages.PackageDiscover
 var dryrunOpt *Option
 var diffOpt *LiveDiffOption
@@ -65,7 +63,7 @@ func TestDryRun(t *testing.T) {
 	RunSpecs(t, "Cli Suite")
 }
 
-var _ = BeforeSuite(func(done Done) {
+var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
 	By("bootstrapping test environment")
 	useExistCluster := false
@@ -87,9 +85,6 @@ var _ = BeforeSuite(func(done Done) {
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme})
 	Expect(err).ToNot(HaveOccurred())
 	Expect(k8sClient).ToNot(BeNil())
-	dm, err = discoverymapper.New(cfg)
-	Expect(err).ToNot(HaveOccurred())
-	Expect(dm).ToNot(BeNil())
 	pd, err = packages.NewPackageDiscover(cfg)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(pd).ToNot(BeNil())
@@ -118,11 +113,9 @@ var _ = BeforeSuite(func(done Done) {
 	wfsd.SetNamespace(types.DefaultKubeVelaNS)
 	Expect(k8sClient.Create(context.TODO(), &wfsd)).Should(BeNil())
 
-	dryrunOpt = NewDryRunOption(k8sClient, cfg, dm, pd, []oam.Object{cdMyWorker, tdMyIngress}, false)
-	diffOpt = &LiveDiffOption{DryRun: dryrunOpt, Parser: appfile.NewApplicationParser(k8sClient, dm, pd)}
-
-	close(done)
-}, 60)
+	dryrunOpt = NewDryRunOption(k8sClient, cfg, pd, []oam.Object{cdMyWorker, tdMyIngress}, false)
+	diffOpt = &LiveDiffOption{DryRun: dryrunOpt, Parser: appfile.NewApplicationParser(k8sClient, pd)}
+})
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")

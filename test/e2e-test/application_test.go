@@ -23,7 +23,7 @@ import (
 	"strconv"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -274,14 +274,6 @@ var _ = Describe("Application Normal tests", func() {
 		By("check trait status")
 		Expect(testApp.Status.Services[0].Traits[0].Message).Should(Equal("configMap:app-file-html"))
 		Expect(testApp.Status.Services[0].Traits[1].Message).Should(Equal("secret:app-env-config"))
-	})
-
-	It("Test app have rollout-template false annotation", func() {
-		By("Apply an application")
-		var newApp v1beta1.Application
-		Expect(common.ReadYamlToObject("testdata/app/app5.yaml", &newApp)).Should(BeNil())
-		newApp.Namespace = namespaceName
-		Expect(k8sClient.Create(ctx, &newApp)).ShouldNot(BeNil())
 	})
 
 	It("Test app have components with same name", func() {

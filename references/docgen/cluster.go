@@ -23,6 +23,7 @@ import (
 
 	"github.com/pkg/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -37,7 +38,6 @@ import (
 	"github.com/oam-dev/kubevela/pkg/appfile"
 	"github.com/oam-dev/kubevela/pkg/cue"
 	"github.com/oam-dev/kubevela/pkg/definition"
-	"github.com/oam-dev/kubevela/pkg/oam/discoverymapper"
 	"github.com/oam-dev/kubevela/pkg/oam/util"
 	"github.com/oam-dev/kubevela/pkg/utils"
 	"github.com/oam-dev/kubevela/pkg/utils/common"
@@ -155,16 +155,11 @@ func GetComponentsFromClusterWithValidateOption(ctx context.Context, namespace s
 
 	var templateErrors []error
 	for _, cd := range componentsDefs.Items {
-		dm, err := c.GetDiscoveryMapper()
-		if err != nil {
-			return nil, nil, err
-		}
-
 		defRef := commontypes.DefinitionReference{
 			Name: cd.Spec.Workload.Type,
 		}
 		if cd.Spec.Workload.Type != types.AutoDetectWorkloadDefinition {
-			defRef, err = util.ConvertWorkloadGVK2Definition(dm, cd.Spec.Workload.Definition)
+			defRef, err = util.ConvertWorkloadGVK2Definition(newClient.RESTMapper(), cd.Spec.Workload.Definition)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -176,7 +171,7 @@ func GetComponentsFromClusterWithValidateOption(ctx context.Context, namespace s
 			continue
 		}
 		if validateFlag && defRef.Name != types.AutoDetectWorkloadDefinition {
-			if err = validateCapabilities(tmp, dm, cd.Name, defRef); err != nil {
+			if err = validateCapabilities(tmp, newClient.RESTMapper(), cd.Name, defRef); err != nil {
 				return nil, nil, err
 			}
 		}
@@ -193,14 +188,6 @@ func GetTraitsFromCluster(ctx context.Context, namespace string, c common.Args, 
 // GetTraitsFromClusterWithValidateOption will get capability from K8s cluster with an option whether to valid Traits
 func GetTraitsFromClusterWithValidateOption(ctx context.Context, namespace string, c common.Args, selector labels.Selector, validateFlag bool) ([]types.Capability, []error, error) {
 	newClient, err := c.GetClient()
-	if err != nil {
-		return nil, nil, err
-	}
-	config, err := c.GetConfig()
-	if err != nil {
-		return nil, nil, err
-	}
-	dm, err := discoverymapper.New(config)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -227,7 +214,7 @@ func GetTraitsFromClusterWithValidateOption(ctx context.Context, namespace strin
 		}
 		tmp.Namespace = namespace
 		if validateFlag {
-			if err = validateCapabilities(tmp, dm, td.Name, td.Spec.Reference); err != nil {
+			if err = validateCapabilities(tmp, newClient.RESTMapper(), td.Name, td.Spec.Reference); err != nil {
 				return nil, nil, err
 			}
 		}
@@ -298,9 +285,9 @@ func GetPolicies(ctx context.Context, namespace string, c common.Args) ([]types.
 }
 
 // validateCapabilities validates whether GVK are successfully retrieved.
-func validateCapabilities(tmp *types.Capability, dm discoverymapper.DiscoveryMapper, definitionName string, reference commontypes.DefinitionReference) error {
+func validateCapabilities(tmp *types.Capability, mapper meta.RESTMapper, definitionName string, reference commontypes.DefinitionReference) error {
 	var err error
-	gvk, err := util.GetGVKFromDefinition(dm, reference)
+	gvk, err := util.GetGVKFromDefinition(mapper, reference)
 	if err != nil {
 		errMsg := err.Error()
 		var substr = "no matches for "
@@ -391,12 +378,6 @@ func HandleTemplate(in *runtime.RawExtension, schematic *commontypes.Schematic, 
 			tmp.Path = schematic.Terraform.Path
 			return tmp, nil
 		}
-		if schematic.KUBE != nil {
-			tmp.Category = types.KubeCategory
-			tmp.KubeTemplate = schematic.KUBE.Template
-			tmp.KubeParameter = schematic.KUBE.Parameters
-			return tmp, nil
-		}
 	}
 	if tmp.CueTemplateURI != "" {
 		b, err := common.HTTPGetWithOption(context.Background(), tmp.CueTemplateURI, nil)
@@ -406,10 +387,6 @@ func HandleTemplate(in *runtime.RawExtension, schematic *commontypes.Schematic, 
 		tmp.CueTemplate = string(b)
 	}
 	if tmp.CueTemplate == "" {
-		if schematic != nil && schematic.HELM != nil {
-			tmp.Category = types.HelmCategory
-			return tmp, nil
-		}
 		return types.Capability{}, errors.New("template not exist in definition")
 	}
 	tmp.Parameters, err = cue.GetParameters(tmp.CueTemplate, pd)
@@ -451,11 +428,7 @@ func GetCapabilityByName(ctx context.Context, c common.Args, capabilityName stri
 		if componentDef.Spec.Workload.Type == types.AutoDetectWorkloadDefinition {
 			refName = types.AutoDetectWorkloadDefinition
 		} else {
-			dm, err := c.GetDiscoveryMapper()
-			if err != nil {
-				return nil, err
-			}
-			ref, err := util.ConvertWorkloadGVK2Definition(dm, componentDef.Spec.Workload.Definition)
+			ref, err := util.ConvertWorkloadGVK2Definition(newClient.RESTMapper(), componentDef.Spec.Workload.Definition)
 			if err != nil {
 				return nil, err
 			}
@@ -548,11 +521,7 @@ func GetCapabilityFromDefinitionRevision(ctx context.Context, c common.Args, pd 
 		if componentDef.Spec.Workload.Type == types.AutoDetectWorkloadDefinition {
 			refName = types.AutoDetectWorkloadDefinition
 		} else {
-			dm, err := c.GetDiscoveryMapper()
-			if err != nil {
-				return nil, err
-			}
-			ref, err := util.ConvertWorkloadGVK2Definition(dm, componentDef.Spec.Workload.Definition)
+			ref, err := util.ConvertWorkloadGVK2Definition(k8sClient.RESTMapper(), componentDef.Spec.Workload.Definition)
 			if err != nil {
 				return nil, err
 			}

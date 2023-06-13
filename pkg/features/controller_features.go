@@ -33,15 +33,13 @@ const (
 	DeprecatedObjectLabelSelector featuregate.Feature = "DeprecatedObjectLabelSelector"
 	// LegacyResourceTrackerGC enable the gc of legacy resource tracker in managed clusters
 	LegacyResourceTrackerGC featuregate.Feature = "LegacyResourceTrackerGC"
-	// LegacyComponentRevision if enabled, create component revision even no rollout trait attached
-	LegacyComponentRevision featuregate.Feature = "LegacyComponentRevision"
 	// LegacyResourceOwnerValidation if enabled, the resource dispatch will allow existing resource not to have owner
 	// application and the current application will take over it
 	LegacyResourceOwnerValidation featuregate.Feature = "LegacyResourceOwnerValidation"
 	// DisableReferObjectsFromURL if set, the url ref objects will be disallowed
 	DisableReferObjectsFromURL featuregate.Feature = "DisableReferObjectsFromURL"
 
-	// ApplyResourceByUpdate enforces the modification of resource through update requests.
+	// ApplyResourceByReplace enforces the modification of resource through PUT requests.
 	// If not set, the resource modification will use patch requests (three-way-strategy-merge-patch).
 	// The side effect of enabling this feature is that the request traffic will increase due to
 	// the increase of bytes transferred and the more frequent resource mutation failure due to the
@@ -50,7 +48,7 @@ const (
 	// system would be unable to make modifications to the KubeVela managed resource. In other words,
 	// no merge for modifications from multiple sources. Only KubeVela keeps the Source-of-Truth for the
 	// resource.
-	ApplyResourceByUpdate featuregate.Feature = "ApplyResourceByUpdate"
+	ApplyResourceByReplace featuregate.Feature = "ApplyResourceByReplace"
 
 	// Edge Features
 
@@ -120,10 +118,9 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	LegacyObjectTypeIdentifier:                    {Default: false, PreRelease: featuregate.Alpha},
 	DeprecatedObjectLabelSelector:                 {Default: false, PreRelease: featuregate.Alpha},
 	LegacyResourceTrackerGC:                       {Default: false, PreRelease: featuregate.Beta},
-	LegacyComponentRevision:                       {Default: false, PreRelease: featuregate.Alpha},
 	LegacyResourceOwnerValidation:                 {Default: false, PreRelease: featuregate.Alpha},
 	DisableReferObjectsFromURL:                    {Default: false, PreRelease: featuregate.Alpha},
-	ApplyResourceByUpdate:                         {Default: false, PreRelease: featuregate.Alpha},
+	ApplyResourceByReplace:                        {Default: false, PreRelease: featuregate.Alpha},
 	AuthenticateApplication:                       {Default: false, PreRelease: featuregate.Alpha},
 	GzipResourceTracker:                           {Default: false, PreRelease: featuregate.Alpha},
 	ZstdResourceTracker:                           {Default: false, PreRelease: featuregate.Alpha},

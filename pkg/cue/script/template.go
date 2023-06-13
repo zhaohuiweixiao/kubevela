@@ -65,7 +65,7 @@ func (c CUE) ParseToValue() (*value.Value, error) {
 func (c CUE) ParseToValueWithCueX() (cuelang.Value, error) {
 	// the cue script must be first, it could include the imports
 	template := string(c) + "\n" + cue.BaseTemplate
-	val, err := velacuex.KubeVelaDefaultCompiler.Get().CompileString(context.Background(), template)
+	val, err := velacuex.KubeVelaDefaultCompiler.Get().CompileStringWithOptions(context.Background(), template, cuex.DisableResolveProviderFunctions{})
 	if err != nil {
 		return cuelang.Value{}, fmt.Errorf("failed to compile config template: %w", err)
 	}
@@ -220,14 +220,14 @@ func (c CUE) ValidateProperties(properties map[string]interface{}) error {
 	newCue := strings.Builder{}
 	newCue.WriteString(parameterStr + "\n")
 	newCue.WriteString(string(propertiesByte) + "\n")
-	value, err := value.NewValue(newCue.String(), nil, "")
+	newValue, err := value.NewValue(newCue.String(), nil, "")
 	if err != nil {
 		return ConvertFieldError(err)
 	}
-	if err := value.CueValue().Validate(); err != nil {
+	if err := newValue.CueValue().Validate(); err != nil {
 		return ConvertFieldError(err)
 	}
-	_, err = value.CueValue().MarshalJSON()
+	_, err = newValue.CueValue().MarshalJSON()
 	if err != nil {
 		return ConvertFieldError(err)
 	}

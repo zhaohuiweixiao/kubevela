@@ -21,7 +21,7 @@ import (
 	"context"
 	"os"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -153,8 +153,8 @@ var _ = Describe("Test Live-Diff", func() {
 
 	It("Test renderless diff", func() {
 		liveDiffOpt := LiveDiffOption{
-			DryRun: NewDryRunOption(k8sClient, cfg, dm, pd, nil, false),
-			Parser: appfile.NewApplicationParser(k8sClient, dm, pd),
+			DryRun: NewDryRunOption(k8sClient, cfg, pd, nil, false),
+			Parser: appfile.NewApplicationParser(k8sClient, pd),
 		}
 		applyFile := func(filename string, ns string) {
 			bs, err := os.ReadFile("./testdata/" + filename)

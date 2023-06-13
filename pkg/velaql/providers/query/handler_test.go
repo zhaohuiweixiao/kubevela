@@ -22,7 +22,7 @@ import (
 	"os"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -514,7 +514,7 @@ options: {
 						Kind:       "Ingress",
 						Namespace:  "default",
 						Name:       "ingress-http",
-						APIVersion: "networking.k8s.io/v1beta1",
+						APIVersion: "networking.k8s.io/v1",
 					},
 				},
 				{
@@ -523,7 +523,7 @@ options: {
 						Kind:       "Ingress",
 						Namespace:  "default",
 						Name:       "ingress-https",
-						APIVersion: "networking.k8s.io/v1beta1",
+						APIVersion: "networking.k8s.io/v1",
 					},
 				},
 				{
@@ -532,7 +532,7 @@ options: {
 						Kind:       "Ingress",
 						Namespace:  "default",
 						Name:       "ingress-paths",
-						APIVersion: "networking.k8s.io/v1beta1",
+						APIVersion: "networking.k8s.io/v1",
 					},
 				},
 				{
@@ -574,7 +574,7 @@ options: {
 				{
 					Cluster: "",
 					ObjectReference: corev1.ObjectReference{
-						APIVersion: "gateway.networking.k8s.io/v1alpha2",
+						APIVersion: "gateway.networking.k8s.io/v1beta1",
 						Kind:       "HTTPRoute",
 						Namespace:  "default",
 						Name:       "http-test-route",
@@ -583,7 +583,7 @@ options: {
 				{
 					Cluster: "",
 					ObjectReference: corev1.ObjectReference{
-						APIVersion: "gateway.networking.k8s.io/v1alpha2",
+						APIVersion: "gateway.networking.k8s.io/v1beta1",
 						Kind:       "HTTPRoute",
 						Namespace:  "default",
 						Name:       "velaux-ssl",

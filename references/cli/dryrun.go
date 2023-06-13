@@ -42,7 +42,6 @@ import (
 	"github.com/oam-dev/kubevela/pkg/appfile/dryrun"
 	pkgdef "github.com/oam-dev/kubevela/pkg/definition"
 	"github.com/oam-dev/kubevela/pkg/oam"
-	"github.com/oam-dev/kubevela/pkg/oam/discoverymapper"
 	oamutil "github.com/oam-dev/kubevela/pkg/oam/util"
 	"github.com/oam-dev/kubevela/pkg/utils"
 	"github.com/oam-dev/kubevela/pkg/utils/common"
@@ -59,12 +58,12 @@ type DryRunCmdOptions struct {
 }
 
 // NewDryRunCommand creates `dry-run` command
-func NewDryRunCommand(c common.Args, ioStreams cmdutil.IOStreams) *cobra.Command {
+func NewDryRunCommand(c common.Args, order string, ioStreams cmdutil.IOStreams) *cobra.Command {
 	o := &DryRunCmdOptions{IOStreams: ioStreams}
 	cmd := &cobra.Command{
 		Use:                   "dry-run",
 		DisableFlagsInUseLine: true,
-		Short:                 "Dry Run an application, and output the K8s resources as result to stdout",
+		Short:                 "Dry Run an application, and output the K8s resources as result to stdout.",
 		Long: `Dry-run application locally, render the Kubernetes resources as result to stdout.
 	vela dry-run -d /definition/directory/or/file/ -f /path/to/app.yaml
 
@@ -91,7 +90,8 @@ vela dry-run -f app.yaml
 vela dry-run -f app.yaml -f policy.yaml -f workflow.yaml
 `,
 		Annotations: map[string]string{
-			types.TagCommandType: types.TypeApp,
+			types.TagCommandType:  types.TypeApp,
+			types.TagCommandOrder: order,
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			namespace, err := GetFlagNamespaceOrEnv(cmd, c)
@@ -128,7 +128,7 @@ func DryRunApplication(cmdOption *DryRunCmdOptions, c common.Args, namespace str
 	var err error
 	var buff = bytes.Buffer{}
 
-	objs := []oam.Object{}
+	var objs []oam.Object
 	if cmdOption.DefinitionFile != "" {
 		objs, err = ReadDefinitionsFromFile(cmdOption.DefinitionFile)
 		if err != nil {
@@ -157,12 +157,8 @@ func DryRunApplication(cmdOption *DryRunCmdOptions, c common.Args, namespace str
 	if err != nil {
 		return buff, err
 	}
-	dm, err := discoverymapper.New(config)
-	if err != nil {
-		return buff, err
-	}
 
-	dryRunOpt := dryrun.NewDryRunOption(newClient, config, dm, pd, objs, false)
+	dryRunOpt := dryrun.NewDryRunOption(newClient, config, pd, objs, false)
 	ctx := oamutil.SetNamespaceInCtx(context.Background(), namespace)
 
 	// Perform validation only if not in offline mode

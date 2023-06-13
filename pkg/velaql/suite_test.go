@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,7 +33,6 @@ import (
 
 	"github.com/kubevela/workflow/pkg/cue/packages"
 
-	"github.com/oam-dev/kubevela/pkg/oam/discoverymapper"
 	"github.com/oam-dev/kubevela/pkg/utils/common"
 )
 
@@ -45,7 +44,7 @@ var pod corev1.Pod
 var readView corev1.ConfigMap
 var applyView corev1.ConfigMap
 
-var _ = BeforeSuite(func(done Done) {
+var _ = BeforeSuite(func() {
 	rand.Seed(time.Now().UnixNano())
 	By("bootstrapping test environment")
 
@@ -69,12 +68,10 @@ var _ = BeforeSuite(func(done Done) {
 	Expect(k8sClient).ToNot(BeNil())
 	By("new kube client success")
 
-	dm, err := discoverymapper.New(cfg)
-	Expect(err).To(BeNil())
 	pd, err := packages.NewPackageDiscover(cfg)
 	Expect(err).To(BeNil())
 
-	viewHandler = NewViewHandler(k8sClient, cfg, dm, pd)
+	viewHandler = NewViewHandler(k8sClient, cfg, pd)
 	ctx := context.Background()
 
 	ns := corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "vela-system"}}
@@ -88,8 +85,7 @@ var _ = BeforeSuite(func(done Done) {
 
 	Expect(common.ReadYamlToObject("./testdata/apply-object.yaml", &applyView)).Should(BeNil())
 	Expect(k8sClient.Create(ctx, &applyView)).Should(BeNil())
-	close(done)
-}, 240)
+})
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")

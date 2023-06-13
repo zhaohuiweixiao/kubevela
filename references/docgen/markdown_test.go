@@ -26,6 +26,7 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/test"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/oam-dev/kubevela/apis/types"
 	"github.com/oam-dev/kubevela/pkg/utils/common"
@@ -42,7 +43,7 @@ func TestCreateMarkdownForCUE(t *testing.T) {
 
 	time.Sleep(time.Millisecond)
 
-	mr := MarkdownReference{}
+	mr := MarkdownReference{ParseReference: ParseReference{Client: fake.NewClientBuilder().Build()}}
 	mr.Local = &FromLocal{Paths: []string{"./testdata/testdef.cue"}}
 	capp, err := ParseLocalFile(mr.Local.Paths[0], common.Args{})
 	assert.NoError(t, err)
@@ -75,7 +76,6 @@ func TestCreateMarkdown(t *testing.T) {
 
 	workloadName := "workload1"
 	traitName := "trait1"
-	scopeName := "scope1"
 	workloadName2 := "workload2"
 
 	workloadCueTemplate := `
@@ -144,17 +144,6 @@ variable "acl" {
 				},
 			},
 			want: nil,
-		},
-		"ScopeTypeCapability": {
-			reason: "invalid capabilities",
-			ref:    ref,
-			capabilities: []types.Capability{
-				{
-					Name: scopeName,
-					Type: types.TypeScope,
-				},
-			},
-			want: fmt.Errorf("type(scope) of the capability(scope1) is not supported for now"),
 		},
 		"TerraformCapabilityInChinese": {
 			reason: "terraform capability",

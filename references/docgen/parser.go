@@ -33,11 +33,12 @@ import (
 	"github.com/olekukonko/tablewriter"
 	"github.com/pkg/errors"
 	"github.com/rogpeppe/go-internal/modfile"
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
 
 	"github.com/kubevela/workflow/pkg/cue/model/value"
@@ -47,9 +48,7 @@ import (
 	"github.com/oam-dev/kubevela/apis/types"
 	"github.com/oam-dev/kubevela/pkg/controller/utils"
 	velacue "github.com/oam-dev/kubevela/pkg/cue"
-	velaprocess "github.com/oam-dev/kubevela/pkg/cue/process"
 	pkgdef "github.com/oam-dev/kubevela/pkg/definition"
-	"github.com/oam-dev/kubevela/pkg/oam/discoverymapper"
 	pkgUtils "github.com/oam-dev/kubevela/pkg/utils"
 	"github.com/oam-dev/kubevela/pkg/utils/common"
 	"github.com/oam-dev/kubevela/pkg/utils/terraform"
@@ -146,11 +145,6 @@ func (ref *ParseReference) prepareConsoleParameter(tableName string, parameterLi
 				printableDefaultValue := ref.getCUEPrintableDefaultValue(p.Default)
 				table.Append([]string{ref.I18N.Get(p.Name), ref.prettySentence(p.Usage), ref.I18N.Get(p.PrintableType), ref.I18N.Get(strconv.FormatBool(p.Required)), ref.I18N.Get(printableDefaultValue)})
 			}
-		}
-	case types.HelmCategory, types.KubeCategory:
-		for _, p := range parameterList {
-			printableDefaultValue := ref.getJSONPrintableDefaultValue(p.JSONType, p.Default)
-			table.Append([]string{ref.I18N.Get(p.Name), ref.prettySentence(p.Usage), ref.I18N.Get(p.PrintableType), ref.I18N.Get(strconv.FormatBool(p.Required)), ref.I18N.Get(printableDefaultValue)})
 		}
 	case types.TerraformCategory:
 		// Terraform doesn't have default value
@@ -431,20 +425,6 @@ func (ref *ParseReference) getCUEPrintableDefaultValue(v interface{}) string {
 	return ""
 }
 
-func (ref *ParseReference) getJSONPrintableDefaultValue(dataType string, value interface{}) string {
-	if value != nil {
-		return strings.TrimSpace(fmt.Sprintf("%v", value))
-	}
-	defaultValueMap := map[string]string{
-		"number":  "0",
-		"boolean": "false",
-		"string":  "\"\"",
-		"object":  "{}",
-		"array":   "[]",
-	}
-	return defaultValueMap[dataType]
-}
-
 // CommonReference contains parameters info of HelmCategory and KubuCategory type capability at present
 type CommonReference struct {
 	Name       string
@@ -456,40 +436,6 @@ type CommonReference struct {
 type CommonSchema struct {
 	Name    string
 	Schemas *openapi3.Schema
-}
-
-// GenerateHelmAndKubeProperties get all properties of a Helm/Kube Category type capability
-func (ref *ParseReference) GenerateHelmAndKubeProperties(ctx context.Context, capability *types.Capability) ([]CommonReference, []ConsoleReference, error) {
-	cmName := fmt.Sprintf("%s%s", types.CapabilityConfigMapNamePrefix, capability.Name)
-	switch capability.Type {
-	case types.TypeComponentDefinition:
-		cmName = fmt.Sprintf("component-%s", cmName)
-	case types.TypeTrait:
-		cmName = fmt.Sprintf("trait-%s", cmName)
-	default:
-	}
-	var cm v1.ConfigMap
-	commonRefs = make([]CommonReference, 0)
-	if err := ref.Client.Get(ctx, client.ObjectKey{Namespace: capability.Namespace, Name: cmName}, &cm); err != nil {
-		return nil, nil, err
-	}
-	data, ok := cm.Data[types.OpenapiV3JSONSchema]
-	if !ok {
-		return nil, nil, errors.Errorf("configMap doesn't have openapi-v3-json-schema data")
-	}
-	parameterJSON := fmt.Sprintf(BaseOpenAPIV3Template, data)
-	swagger, err := openapi3.NewLoader().LoadFromData(json.RawMessage(parameterJSON))
-	if err != nil {
-		return nil, nil, err
-	}
-	parameters := swagger.Components.Schemas[velaprocess.ParameterFieldName].Value
-	WalkParameterSchema(parameters, Specification, 0)
-
-	var consoleRefs []ConsoleReference
-	for _, item := range commonRefs {
-		consoleRefs = append(consoleRefs, ref.prepareConsoleParameter(item.Name, item.Parameters, types.HelmCategory))
-	}
-	return commonRefs, consoleRefs, err
 }
 
 // GenerateTerraformCapabilityProperties generates Capability properties for Terraform ComponentDefinition
@@ -677,7 +623,7 @@ func ParseLocalFile(localFilePath string, c common.Args) (*types.Capability, err
 	def := pkgdef.Definition{Unstructured: unstructured.Unstructured{}}
 	config, err := c.GetConfig()
 	if err != nil {
-		return nil, errors.Wrap(err, "get kubeconfig")
+		klog.Infof("ignore kubernetes cluster, unable to get kubeconfig: %s", err.Error())
 	}
 
 	if err = def.FromCUEString(string(data), config); err != nil {
@@ -687,9 +633,13 @@ func ParseLocalFile(localFilePath string, c common.Args) (*types.Capability, err
 	if err != nil {
 		klog.Warning("fail to build package discover, use local info instead", err)
 	}
-	mapper, err := c.GetDiscoveryMapper()
+	cli, err := c.GetClient()
 	if err != nil {
-		klog.Warning("fail to build discover mapper, use local info instead", err)
+		klog.Warning("fail to build client, use local info instead", err)
+	}
+	mapper := fake.NewClientBuilder().Build().RESTMapper()
+	if cli != nil {
+		mapper = cli.RESTMapper()
 	}
 	lcap, err := ParseCapabilityFromUnstructured(mapper, pd, def.Unstructured)
 	if err != nil {
@@ -748,7 +698,7 @@ func WalkParameterSchema(parameters *openapi3.Schema, name string, depth int) {
 }
 
 // GetBaseResourceKinds helps get resource.group string of components' base resource
-func GetBaseResourceKinds(cueStr string, pd *packages.PackageDiscover, dm discoverymapper.DiscoveryMapper) (string, error) {
+func GetBaseResourceKinds(cueStr string, pd *packages.PackageDiscover, mapper meta.RESTMapper) (string, error) {
 	t, err := value.NewValue(cueStr+velacue.BaseTemplate, pd, "")
 	if err != nil {
 		return "", errors.Wrap(err, "failed to parse base template")
@@ -769,11 +719,8 @@ func GetBaseResourceKinds(cueStr string, pd *packages.PackageDiscover, dm discov
 	if len(GroupAndVersion) == 1 {
 		GroupAndVersion = append([]string{""}, GroupAndVersion...)
 	}
-	gvr, err := dm.ResourcesFor(schema.GroupVersionKind{
-		Group:   GroupAndVersion[0],
-		Version: GroupAndVersion[1],
-		Kind:    kind,
-	})
+	mapping, err := mapper.RESTMapping(schema.GroupKind{Group: GroupAndVersion[0], Kind: kind}, GroupAndVersion[1])
+	gvr := mapping.Resource
 	if err != nil {
 		return "", err
 	}

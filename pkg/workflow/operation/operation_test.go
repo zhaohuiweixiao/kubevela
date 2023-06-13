@@ -19,12 +19,13 @@ package operation
 import (
 	"context"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	kruisev1alpha1 "github.com/openkruise/rollouts/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/pointer"
 
 	workflowv1alpha1 "github.com/kubevela/workflow/api/v1alpha1"
 
@@ -270,7 +271,7 @@ var myRollout = kruisev1alpha1.Rollout{
 			Canary: &kruisev1alpha1.CanaryStrategy{
 				Steps: []kruisev1alpha1.CanaryStep{
 					{
-						Weight: 30,
+						Weight: pointer.Int32(30),
 					},
 				},
 			},

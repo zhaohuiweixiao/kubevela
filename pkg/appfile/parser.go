@@ -45,7 +45,6 @@ import (
 	"github.com/oam-dev/kubevela/pkg/features"
 	"github.com/oam-dev/kubevela/pkg/monitor/metrics"
 	"github.com/oam-dev/kubevela/pkg/oam"
-	"github.com/oam-dev/kubevela/pkg/oam/discoverymapper"
 	"github.com/oam-dev/kubevela/pkg/oam/util"
 	policypkg "github.com/oam-dev/kubevela/pkg/policy"
 	"github.com/oam-dev/kubevela/pkg/utils"
@@ -54,36 +53,33 @@ import (
 )
 
 // TemplateLoaderFn load template of a capability definition
-type TemplateLoaderFn func(context.Context, discoverymapper.DiscoveryMapper, client.Reader, string, types.CapType) (*Template, error)
+type TemplateLoaderFn func(context.Context, client.Client, string, types.CapType) (*Template, error)
 
 // LoadTemplate load template of a capability definition
-func (fn TemplateLoaderFn) LoadTemplate(ctx context.Context, dm discoverymapper.DiscoveryMapper, c client.Reader, capName string, capType types.CapType) (*Template, error) {
-	return fn(ctx, dm, c, capName, capType)
+func (fn TemplateLoaderFn) LoadTemplate(ctx context.Context, c client.Client, capName string, capType types.CapType) (*Template, error) {
+	return fn(ctx, c, capName, capType)
 }
 
 // Parser is an application parser
 type Parser struct {
 	client     client.Client
-	dm         discoverymapper.DiscoveryMapper
 	pd         *packages.PackageDiscover
 	tmplLoader TemplateLoaderFn
 }
 
 // NewApplicationParser create appfile parser
-func NewApplicationParser(cli client.Client, dm discoverymapper.DiscoveryMapper, pd *packages.PackageDiscover) *Parser {
+func NewApplicationParser(cli client.Client, pd *packages.PackageDiscover) *Parser {
 	return &Parser{
 		client:     cli,
-		dm:         dm,
 		pd:         pd,
 		tmplLoader: LoadTemplate,
 	}
 }
 
 // NewDryRunApplicationParser create an appfile parser for DryRun
-func NewDryRunApplicationParser(cli client.Client, dm discoverymapper.DiscoveryMapper, pd *packages.PackageDiscover, defs []oam.Object) *Parser {
+func NewDryRunApplicationParser(cli client.Client, pd *packages.PackageDiscover, defs []oam.Object) *Parser {
 	return &Parser{
 		client:     cli,
-		dm:         dm,
 		pd:         pd,
 		tmplLoader: DryRunTemplateLoader(defs),
 	}
@@ -112,7 +108,13 @@ func (p *Parser) GenerateAppFileFromApp(ctx context.Context, app *v1beta1.Applic
 	ns := app.Namespace
 	appName := app.Name
 
-	appfile := p.newAppfile(appName, ns, app)
+	for idx := range app.Spec.Policies {
+		if app.Spec.Policies[idx].Name == "" {
+			app.Spec.Policies[idx].Name = fmt.Sprintf("%s:auto-gen:%d", app.Spec.Policies[idx].Type, idx)
+		}
+	}
+
+	appfile := p.newAppFile(appName, ns, app)
 	if app.Status.LatestRevision != nil {
 		appfile.AppRevisionName = app.Status.LatestRevision.Name
 	}
@@ -159,18 +161,12 @@ func (p *Parser) GenerateAppFileFromApp(ctx context.Context, app *v1beta1.Applic
 				appfile.RelatedTraitDefinitions[t.FullTemplate.TraitDefinition.Name] = td
 			}
 		}
-		for _, s := range w.ScopeDefinition {
-			if s == nil {
-				continue
-			}
-			appfile.RelatedScopeDefinitions[s.Name] = s.DeepCopy()
-		}
 	}
 
 	return appfile, nil
 }
 
-func (p *Parser) newAppfile(appName, ns string, app *v1beta1.Application) *Appfile {
+func (p *Parser) newAppFile(appName, ns string, app *v1beta1.Application) *Appfile {
 	file := &Appfile{
 		Name:      appName,
 		Namespace: ns,
@@ -179,7 +175,6 @@ func (p *Parser) newAppfile(appName, ns string, app *v1beta1.Application) *Appfi
 		AppAnnotations:                 make(map[string]string),
 		RelatedTraitDefinitions:        make(map[string]*v1beta1.TraitDefinition),
 		RelatedComponentDefinitions:    make(map[string]*v1beta1.ComponentDefinition),
-		RelatedScopeDefinitions:        make(map[string]*v1beta1.ScopeDefinition),
 		RelatedWorkflowStepDefinitions: make(map[string]*v1beta1.WorkflowStepDefinition),
 
 		ExternalPolicies: make(map[string]*v1alpha1.Policy),
@@ -254,7 +249,7 @@ func (p *Parser) GenerateAppFileFromRevision(appRev *v1beta1.ApplicationRevision
 	app := appRev.Spec.Application.DeepCopy()
 	ns := app.Namespace
 	appName := app.Name
-	appfile := p.newAppfile(appName, ns, app)
+	appfile := p.newAppFile(appName, ns, app)
 	appfile.AppRevision = appRev
 	appfile.AppRevisionName = appRev.Name
 	appfile.AppRevisionHash = appRev.Labels[oam.LabelAppRevisionHash]
@@ -315,10 +310,6 @@ func (p *Parser) GenerateAppFileFromRevision(appRev *v1beta1.ApplicationRevision
 		for name, def := range appfile.RelatedWorkflowStepDefinitions {
 			appRev.Spec.WorkflowStepDefinitions[name] = def
 		}
-	}
-
-	for k, v := range appRev.Spec.ScopeDefinitions {
-		appfile.RelatedScopeDefinitions[k] = v.DeepCopy()
 	}
 
 	return appfile, nil
@@ -391,6 +382,7 @@ func (p *Parser) parsePoliciesFromRevision(ctx context.Context, af *Appfile) (er
 		case v1alpha1.SharedResourcePolicyType:
 		case v1alpha1.TakeOverPolicyType:
 		case v1alpha1.ReadOnlyPolicyType:
+		case v1alpha1.ResourceUpdatePolicyType:
 		case v1alpha1.EnvBindingPolicyType:
 		case v1alpha1.TopologyPolicyType:
 		case v1alpha1.OverridePolicyType:
@@ -422,6 +414,7 @@ func (p *Parser) parsePolicies(ctx context.Context, af *Appfile) (err error) {
 		case v1alpha1.SharedResourcePolicyType:
 		case v1alpha1.TakeOverPolicyType:
 		case v1alpha1.ReadOnlyPolicyType:
+		case v1alpha1.ResourceUpdatePolicyType:
 		case v1alpha1.EnvBindingPolicyType:
 		case v1alpha1.TopologyPolicyType:
 		case v1alpha1.ReplicationPolicyType:
@@ -528,7 +521,7 @@ func (p *Parser) parseWorkflowStep(ctx context.Context, af *Appfile, workflowSte
 }
 
 func (p *Parser) makeWorkload(ctx context.Context, name, typ string, capType types.CapType, props *runtime.RawExtension) (*Workload, error) {
-	templ, err := p.tmplLoader.LoadTemplate(ctx, p.dm, p.client, typ, capType)
+	templ, err := p.tmplLoader.LoadTemplate(ctx, p.client, typ, capType)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "fetch component/policy type of %s", name)
 	}
@@ -536,7 +529,7 @@ func (p *Parser) makeWorkload(ctx context.Context, name, typ string, capType typ
 }
 
 func (p *Parser) makeWorkloadFromRevision(name, typ string, capType types.CapType, props *runtime.RawExtension, appRev *v1beta1.ApplicationRevision) (*Workload, error) {
-	templ, err := LoadTemplateFromRevision(typ, capType, appRev, p.dm)
+	templ, err := LoadTemplateFromRevision(typ, capType, appRev, p.client.RESTMapper())
 	if err != nil {
 		return nil, errors.WithMessagef(err, "fetch component/policy type of %s from revision", name)
 	}
@@ -555,7 +548,6 @@ func (p *Parser) convertTemplate2Workload(name, typ string, props *runtime.RawEx
 	}
 	return &Workload{
 		Traits:             []*Trait{},
-		ScopeDefinition:    []*v1beta1.ScopeDefinition{},
 		Name:               name,
 		Type:               wlType,
 		CapabilityCategory: templ.CapabilityCategory,
@@ -572,33 +564,27 @@ func (p *Parser) parseWorkload(ctx context.Context, comp common.ApplicationCompo
 	if err != nil {
 		return nil, err
 	}
-	workload.ExternalRevision = comp.ExternalRevision
 
+	if err = p.parseTraits(ctx, workload, comp); err != nil {
+		return nil, err
+	}
+	return workload, nil
+}
+
+func (p *Parser) parseTraits(ctx context.Context, workload *Workload, comp common.ApplicationComponent) error {
 	for _, traitValue := range comp.Traits {
 		properties, err := util.RawExtension2Map(traitValue.Properties)
 		if err != nil {
-			return nil, errors.Errorf("fail to parse properties of %s for %s", traitValue.Type, comp.Name)
+			return errors.Errorf("fail to parse properties of %s for %s", traitValue.Type, comp.Name)
 		}
 		trait, err := p.parseTrait(ctx, traitValue.Type, properties)
 		if err != nil {
-			return nil, errors.WithMessagef(err, "component(%s) parse trait(%s)", comp.Name, traitValue.Type)
+			return errors.WithMessagef(err, "component(%s) parse trait(%s)", comp.Name, traitValue.Type)
 		}
 
 		workload.Traits = append(workload.Traits, trait)
 	}
-	for scopeType, instanceName := range comp.Scopes {
-		sd, gvk, err := GetScopeDefAndGVK(ctx, p.client, p.dm, scopeType)
-		if err != nil {
-			return nil, err
-		}
-		workload.Scopes = append(workload.Scopes, Scope{
-			Name:            instanceName,
-			GVK:             gvk,
-			ResourceVersion: sd.Spec.Reference.Name + "/" + sd.Spec.Reference.Version,
-		})
-		workload.ScopeDefinition = append(workload.ScopeDefinition, sd)
-	}
-	return workload, nil
+	return nil
 }
 
 // ParseWorkloadFromRevision resolve an ApplicationComponent and generate a Workload
@@ -608,33 +594,28 @@ func (p *Parser) ParseWorkloadFromRevision(comp common.ApplicationComponent, app
 	if err != nil {
 		return nil, err
 	}
-	workload.ExternalRevision = comp.ExternalRevision
 
+	if err = p.parseTraitsFromRevision(comp, appRev, workload); err != nil {
+		return nil, err
+	}
+
+	return workload, nil
+}
+
+func (p *Parser) parseTraitsFromRevision(comp common.ApplicationComponent, appRev *v1beta1.ApplicationRevision, workload *Workload) error {
 	for _, traitValue := range comp.Traits {
 		properties, err := util.RawExtension2Map(traitValue.Properties)
 		if err != nil {
-			return nil, errors.Errorf("fail to parse properties of %s for %s", traitValue.Type, comp.Name)
+			return errors.Errorf("fail to parse properties of %s for %s", traitValue.Type, comp.Name)
 		}
 		trait, err := p.parseTraitFromRevision(traitValue.Type, properties, appRev)
 		if err != nil {
-			return nil, errors.WithMessagef(err, "component(%s) parse trait(%s)", comp.Name, traitValue.Type)
+			return errors.WithMessagef(err, "component(%s) parse trait(%s)", comp.Name, traitValue.Type)
 		}
 
 		workload.Traits = append(workload.Traits, trait)
 	}
-	for scopeType, instanceName := range comp.Scopes {
-		sd, gvk, err := GetScopeDefAndGVKFromRevision(scopeType, appRev)
-		if err != nil {
-			return nil, err
-		}
-		workload.Scopes = append(workload.Scopes, Scope{
-			Name:            instanceName,
-			GVK:             gvk,
-			ResourceVersion: sd.Spec.Reference.Name + "/" + sd.Spec.Reference.Version,
-		})
-		workload.ScopeDefinition = append(workload.ScopeDefinition, sd)
-	}
-	return workload, nil
+	return nil
 }
 
 // ParseWorkloadFromRevisionAndClient resolve an ApplicationComponent and generate a Workload
@@ -648,7 +629,6 @@ func (p *Parser) ParseWorkloadFromRevisionAndClient(ctx context.Context, comp co
 	if err != nil {
 		return nil, err
 	}
-	workload.ExternalRevision = comp.ExternalRevision
 
 	for _, traitValue := range comp.Traits {
 		properties, err := util.RawExtension2Map(traitValue.Properties)
@@ -666,26 +646,11 @@ func (p *Parser) ParseWorkloadFromRevisionAndClient(ctx context.Context, comp co
 		workload.Traits = append(workload.Traits, trait)
 	}
 
-	for scopeType, instanceName := range comp.Scopes {
-		sd, gvk, err := GetScopeDefAndGVKFromRevision(scopeType, appRev)
-		if IsNotFoundInAppRevision(err) {
-			sd, gvk, err = GetScopeDefAndGVK(ctx, p.client, p.dm, scopeType)
-		}
-		if err != nil {
-			return nil, err
-		}
-		workload.Scopes = append(workload.Scopes, Scope{
-			Name:            instanceName,
-			GVK:             gvk,
-			ResourceVersion: sd.Spec.Reference.Name + "/" + sd.Spec.Reference.Version,
-		})
-		workload.ScopeDefinition = append(workload.ScopeDefinition, sd)
-	}
 	return workload, nil
 }
 
 func (p *Parser) parseTrait(ctx context.Context, name string, properties map[string]interface{}) (*Trait, error) {
-	templ, err := p.tmplLoader.LoadTemplate(ctx, p.dm, p.client, name, types.TypeTrait)
+	templ, err := p.tmplLoader.LoadTemplate(ctx, p.client, name, types.TypeTrait)
 	if kerrors.IsNotFound(err) {
 		return nil, errors.Errorf("trait definition of %s not found", name)
 	}
@@ -696,7 +661,7 @@ func (p *Parser) parseTrait(ctx context.Context, name string, properties map[str
 }
 
 func (p *Parser) parseTraitFromRevision(name string, properties map[string]interface{}, appRev *v1beta1.ApplicationRevision) (*Trait, error) {
-	templ, err := LoadTemplateFromRevision(name, types.TypeTrait, appRev, p.dm)
+	templ, err := LoadTemplateFromRevision(name, types.TypeTrait, appRev, p.client.RESTMapper())
 	if err != nil {
 		return nil, err
 	}
@@ -720,7 +685,7 @@ func (p *Parser) convertTemplate2Trait(name string, properties map[string]interf
 	}, nil
 }
 
-// ValidateComponentNames validate all component name whether repeat in cluster and template
+// ValidateComponentNames validate all component names whether repeat in cluster and template
 func (p *Parser) ValidateComponentNames(app *v1beta1.Application) (int, error) {
 	compNames := map[string]struct{}{}
 	for idx, comp := range app.Spec.Components {
@@ -730,34 +695,4 @@ func (p *Parser) ValidateComponentNames(app *v1beta1.Application) (int, error) {
 		compNames[comp.Name] = struct{}{}
 	}
 	return 0, nil
-}
-
-// GetScopeDefAndGVK get grouped API version of the given scope
-func GetScopeDefAndGVK(ctx context.Context, cli client.Reader, dm discoverymapper.DiscoveryMapper,
-	name string) (*v1beta1.ScopeDefinition, metav1.GroupVersionKind, error) {
-	var gvk metav1.GroupVersionKind
-	sd := new(v1beta1.ScopeDefinition)
-	err := util.GetDefinition(ctx, cli, sd, name)
-	if err != nil {
-		return nil, gvk, err
-	}
-	gvk, err = util.GetGVKFromDefinition(dm, sd.Spec.Reference)
-	if err != nil {
-		return nil, gvk, err
-	}
-	return sd, gvk, nil
-}
-
-// GetScopeDefAndGVKFromRevision get grouped API version of the given scope
-func GetScopeDefAndGVKFromRevision(name string, appRev *v1beta1.ApplicationRevision) (*v1beta1.ScopeDefinition, metav1.GroupVersionKind, error) {
-	var gvk metav1.GroupVersionKind
-	sd, ok := appRev.Spec.ScopeDefinitions[name]
-	if !ok {
-		return nil, gvk, fmt.Errorf("scope %s not found in application revision", name)
-	}
-	gvk, ok = appRev.Spec.ScopeGVK[sd.Spec.Reference.Name+"/"+sd.Spec.Reference.Version]
-	if !ok {
-		return nil, gvk, fmt.Errorf("scope definition found but GVK %s not found in application revision", name)
-	}
-	return sd.DeepCopy(), gvk, nil
 }

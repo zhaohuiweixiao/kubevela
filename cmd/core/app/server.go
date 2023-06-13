@@ -28,6 +28,7 @@ import (
 	velaclient "github.com/kubevela/pkg/controller/client"
 	"github.com/kubevela/pkg/controller/sharding"
 	"github.com/kubevela/pkg/meta"
+	"github.com/kubevela/pkg/util/profiling"
 	"github.com/kubevela/workflow/pkg/cue/packages"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -45,17 +46,13 @@ import (
 	"github.com/oam-dev/kubevela/cmd/core/app/options"
 	"github.com/oam-dev/kubevela/pkg/auth"
 	"github.com/oam-dev/kubevela/pkg/cache"
-	standardcontroller "github.com/oam-dev/kubevela/pkg/controller"
 	commonconfig "github.com/oam-dev/kubevela/pkg/controller/common"
-	oamv1alpha2 "github.com/oam-dev/kubevela/pkg/controller/core.oam.dev/v1alpha2"
-	"github.com/oam-dev/kubevela/pkg/controller/core.oam.dev/v1alpha2/application"
-	"github.com/oam-dev/kubevela/pkg/controller/utils"
+	oamv1alpha2 "github.com/oam-dev/kubevela/pkg/controller/core.oam.dev/v1beta1"
+	"github.com/oam-dev/kubevela/pkg/controller/core.oam.dev/v1beta1/application"
 	"github.com/oam-dev/kubevela/pkg/features"
 	"github.com/oam-dev/kubevela/pkg/monitor/watcher"
 	"github.com/oam-dev/kubevela/pkg/multicluster"
 	"github.com/oam-dev/kubevela/pkg/oam"
-	"github.com/oam-dev/kubevela/pkg/oam/discoverymapper"
-	pkgutil "github.com/oam-dev/kubevela/pkg/utils"
 	"github.com/oam-dev/kubevela/pkg/utils/common"
 	"github.com/oam-dev/kubevela/pkg/utils/util"
 	oamwebhook "github.com/oam-dev/kubevela/pkg/webhook/core.oam.dev"
@@ -72,11 +69,9 @@ var (
 func NewCoreCommand() *cobra.Command {
 	s := options.NewCoreOptions()
 	cmd := &cobra.Command{
-		Use: "vela-core",
-		Long: `The KubeVela controller manager is a daemon that embeds
-the core control loops shipped with KubeVela`,
+		Use:  "vela-core",
+		Long: `The KubeVela controller manager is a daemon that embeds the core control loops shipped with KubeVela`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-
 			return run(signals.SetupSignalHandler(), s)
 		},
 		SilenceUsage: true,
@@ -90,17 +85,12 @@ the core control loops shipped with KubeVela`,
 	meta.Name = types.VelaCoreName
 
 	klog.InfoS("KubeVela information", "version", version.VelaVersion, "revision", version.GitRevision)
-	klog.InfoS("Disable capabilities", "name", s.DisableCaps)
 	klog.InfoS("Vela-Core init", "definition namespace", oam.SystemDefinitionNamespace)
 
 	return cmd
 }
 
 func run(ctx context.Context, s *options.CoreOptions) error {
-	klog.InfoS("KubeVela information", "version", version.VelaVersion, "revision", version.GitRevision)
-	klog.InfoS("Disable capabilities", "name", s.DisableCaps)
-	klog.InfoS("Vela-Core init", "definition namespace", oam.SystemDefinitionNamespace)
-
 	restConfig := ctrl.GetConfigOrDie()
 	restConfig.UserAgent = types.KubeVelaName + "/" + version.GitRevision
 	restConfig.QPS = float32(s.QPS)
@@ -111,10 +101,7 @@ func run(ctx context.Context, s *options.CoreOptions) error {
 		"QPS", restConfig.QPS,
 		"Burst", restConfig.Burst,
 	)
-
-	if s.PprofAddr != "" {
-		go pkgutil.EnablePprof(s.PprofAddr, nil)
-	}
+	go profiling.StartProfilingServer(nil)
 
 	// wrapper the round tripper by multi cluster rewriter
 	if s.EnableClusterGateway {
@@ -174,17 +161,6 @@ func run(ctx context.Context, s *options.CoreOptions) error {
 		return err
 	}
 
-	if err := utils.CheckDisabledCapabilities(s.DisableCaps); err != nil {
-		klog.ErrorS(err, "Unable to get enabled capabilities")
-		return err
-	}
-
-	dm, err := discoverymapper.New(mgr.GetConfig())
-	if err != nil {
-		klog.ErrorS(err, "Failed to create CRD discovery client")
-		return err
-	}
-	s.ControllerArgs.DiscoveryMapper = dm
 	pd, err := packages.NewPackageDiscover(mgr.GetConfig())
 	if err != nil {
 		klog.Error(err, "Failed to create CRD discovery for CUE package client")
@@ -253,11 +229,6 @@ func prepareRun(ctx context.Context, mgr manager.Manager, s *options.CoreOptions
 
 	if err := oamv1alpha2.Setup(mgr, *s.ControllerArgs); err != nil {
 		klog.ErrorS(err, "Unable to setup the oam controller")
-		return err
-	}
-
-	if err := standardcontroller.Setup(mgr, s.DisableCaps, *s.ControllerArgs); err != nil {
-		klog.ErrorS(err, "Unable to setup the vela core controller")
 		return err
 	}
 

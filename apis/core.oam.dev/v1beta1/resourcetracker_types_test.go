@@ -200,15 +200,11 @@ func TestResourceTrackerCompression(t *testing.T) {
 		"../../../charts/vela-core/crds/core.oam.dev_applicationrevisions.yaml",
 		"../../../charts/vela-core/crds/core.oam.dev_applications.yaml",
 		"../../../charts/vela-core/crds/core.oam.dev_definitionrevisions.yaml",
-		"../../../charts/vela-core/crds/core.oam.dev_healthscopes.yaml",
 		"../../../charts/vela-core/crds/core.oam.dev_traitdefinitions.yaml",
 		"../../../charts/vela-core/crds/core.oam.dev_componentdefinitions.yaml",
-		"../../../charts/vela-core/crds/core.oam.dev_workloaddefinitions.yaml",
-		"../../../charts/vela-core/crds/standard.oam.dev_rollouts.yaml",
 		"../../../charts/vela-core/templates/kubevela-controller.yaml",
 		"../../../charts/vela-core/README.md",
 		"../../../pkg/velaql/providers/query/testdata/machinelearning.seldon.io_seldondeployments.yaml",
-		"../../../legacy/charts/vela-core-legacy/crds/standard.oam.dev_podspecworkloads.yaml",
 	}
 	for _, p := range paths {
 		b, err := os.ReadFile(p)

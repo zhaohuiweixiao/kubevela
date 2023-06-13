@@ -31,7 +31,7 @@ import (
 	crdv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -46,7 +46,6 @@ import (
 	"github.com/kubevela/workflow/pkg/cue/packages"
 
 	coreoam "github.com/oam-dev/kubevela/apis/core.oam.dev"
-	"github.com/oam-dev/kubevela/pkg/oam/discoverymapper"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -54,7 +53,6 @@ var cfg *rest.Config
 var scheme *runtime.Scheme
 var k8sClient client.Client
 var testEnv *envtest.Environment
-var dm discoverymapper.DiscoveryMapper
 var pd *packages.PackageDiscover
 var testns string
 var dc *discovery.DiscoveryClient
@@ -64,7 +62,7 @@ func TestAddon(t *testing.T) {
 	RunSpecs(t, "Kruise rollout Suite test")
 }
 
-var _ = BeforeSuite(func(done Done) {
+var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
 	By("bootstrapping test environment")
 	useExistCluster := false
@@ -95,9 +93,6 @@ var _ = BeforeSuite(func(done Done) {
 	Expect(err).ToNot(HaveOccurred())
 	Expect(dc).ShouldNot(BeNil())
 
-	dm, err = discoverymapper.New(cfg)
-	Expect(err).ToNot(HaveOccurred())
-	Expect(dm).ToNot(BeNil())
 	pd, err = packages.NewPackageDiscover(cfg)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(pd).ToNot(BeNil())
@@ -106,9 +101,7 @@ var _ = BeforeSuite(func(done Done) {
 		&v12.Namespace{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"}, ObjectMeta: metav1.ObjectMeta{
 			Name: testns,
 		}}))
-
-	close(done)
-}, 120)
+})
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")

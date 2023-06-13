@@ -22,7 +22,7 @@ import (
 	"strings"
 	"testing"
 
-	"gotest.tools/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 var templateScript = `
@@ -288,12 +288,12 @@ func TestValidatePropertiesWithCueX(t *testing.T) {
 }
 
 func TestParsePropertiesToSchema(t *testing.T) {
-	cue := CUE([]byte(withPackage))
+	cue := CUE(withPackage)
 	schema, err := cue.ParsePropertiesToSchema()
 	assert.Equal(t, err, nil)
 	assert.Equal(t, len(schema.Properties), 10)
 
-	cue = CUE([]byte(withImport))
+	cue = CUE(withImport)
 	schema, err = cue.ParsePropertiesToSchema()
 	assert.Equal(t, err, nil)
 	assert.Equal(t, len(schema.Properties), 2)
